@@ -64,9 +64,8 @@ out/
 
 # Database files
 .modusdb/
-data/p/
-data/w/
-data/zw/
+data/
+
 *.mem
 *.vlog
 *.wal

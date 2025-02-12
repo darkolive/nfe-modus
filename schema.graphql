@@ -1,0 +1,69 @@
+<OTP>: string .
+<RequestOTPResponse.expiresAt>: datetime .
+<RequestOTPResponse.message>: string .
+<RequestOTPResponse.success>: bool .
+<User.OTP>: string .
+<User.email>: string @index(exact) .
+<User.failedAttempts>: int .
+<User.firstName>: string @index(exact) .
+<User.isActive>: bool @index(bool) .
+<User.lastAuthTime>: datetime .
+<User.otp>: string .
+<User.otpCreatedAt>: datetime .
+<User.sessionToken>: string @index(exact) .
+<User.verified>: bool @index(bool) .
+<ValidateSessionResponse.user>: uid .
+<ValidateSessionResponse.valid>: bool .
+<VerifyOTPResponse.message>: string .
+<VerifyOTPResponse.sessionToken>: string .
+<VerifyOTPResponse.success>: bool .
+<VerifyOTPResponse.user>: uid .
+<code>: default .
+<dgraph.drop.op>: string .
+<dgraph.graphql.p_query>: string @index(sha256) .
+<dgraph.graphql.schema>: string .
+<dgraph.graphql.xid>: string @index(exact) @upsert .
+<email>: string @index(exact) .
+<expiration>: default .
+<expiresAt>: string .
+<expiry>: string .
+<failedAttempts>: int .
+<firstName>: string @index(exact) @upsert .
+<isActive>: bool @index(bool) .
+<lastAuthTime>: datetime .
+<otp>: string .
+<otpCreatedAt>: datetime .
+<sessionToken>: string @index(exact) .
+<type>: default .
+<verified>: bool @index(bool) .
+type <RequestOTPResponse> {
+	RequestOTPResponse.success
+	RequestOTPResponse.message
+	RequestOTPResponse.expiresAt
+}
+type <User> {
+	User.email
+	User.otp
+	User.sessionToken
+	User.lastAuthTime
+	User.isActive
+	User.otpCreatedAt
+	User.failedAttempts
+}
+type <ValidateSessionResponse> {
+	ValidateSessionResponse.valid
+	ValidateSessionResponse.user
+}
+type <VerifyOTPResponse> {
+	VerifyOTPResponse.success
+	VerifyOTPResponse.message
+	VerifyOTPResponse.sessionToken
+	VerifyOTPResponse.user
+}
+type <dgraph.graphql> {
+	dgraph.graphql.schema
+	dgraph.graphql.xid
+}
+type <dgraph.graphql.persisted_query> {
+	dgraph.graphql.p_query
+}

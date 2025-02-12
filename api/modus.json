@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.hypermode.com/modus.json",
+  "endpoints": {
+    "default": {
+      "type": "graphql",
+      "path": "/graphql",
+      "auth": "bearer-token"
+    }
+  },
+  "connections": {
+    "my-dgraph": {
+      "type": "dgraph",
+      "grpcTarget": "localhost:9080"
+    },
+    "resend": {
+      "type": "http",
+      "baseUrl": "https://api.resend.com/emails/",
+      "headers": {
+        "Authorization": "Bearer {{EMAIL_API_KEY}}"
+      }
+    }
+  }
+}

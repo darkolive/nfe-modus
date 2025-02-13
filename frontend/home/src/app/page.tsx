@@ -33,13 +33,26 @@ const VERIFY_OTP_QUERY = `
   }
 `;
 
+const GET_USER_TIMESTAMPS_QUERY = `
+  query($req: GetUserTimestampsInput) {
+    userTimestamps(req: $req) {
+      dateJoined
+      lastAuthTime
+    }
+  }
+`;
+
 export default function Home() {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<"email" | "otp">("email");
+  const [step, setStep] = useState<"email" | "otp" | "success">("email");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [userTimestamps, setUserTimestamps] = useState<{
+    dateJoined: string;
+    lastAuthTime: string;
+  } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,12 +129,34 @@ export default function Home() {
 
       if (data.data?.verifyOTP?.success) {
         console.log("OTP Verified:", data.data.verifyOTP.message);
-        // Close dialog on success
-        setIsDialogOpen(false);
-        // Reset form
-        setStep("email");
-        setOtp("");
-        setEmail("");
+        
+        // Fetch user timestamps after successful verification
+        const timestampsResponse = await fetch('http://localhost:8686/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: GET_USER_TIMESTAMPS_QUERY,
+            variables: {
+              req: {
+                email
+              }
+            }
+          })
+        });
+
+        const timestampsData = await timestampsResponse.json();
+
+        if (timestampsData.errors) {
+          throw new Error(timestampsData.errors[0].message);
+        }
+
+        setUserTimestamps({
+          dateJoined: timestampsData.data?.userTimestamps?.dateJoined || '',
+          lastAuthTime: timestampsData.data?.userTimestamps?.lastAuthTime || ''
+        });
+        setStep("success");
       } else {
         throw new Error(data.data?.verifyOTP?.message || "Failed to verify OTP");
       }
@@ -130,6 +165,15 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleClose = () => {
+    setIsDialogOpen(false);
+    setStep("email");
+    setOtp("");
+    setEmail("");
+    setUserTimestamps(null);
+    setError(null);
   };
 
   return (
@@ -141,12 +185,16 @@ export default function Home() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {step === "email" ? "Enter Your Email" : "Enter OTP"}
+              {step === "email" ? "Enter Your Email" : 
+               step === "otp" ? "Enter OTP" :
+               "Verification Successful"}
             </DialogTitle>
             <DialogDescription>
               {step === "email" 
                 ? "Please provide your email address to continue."
-                : "Please enter the 6-digit code sent to your email."}
+                : step === "otp"
+                ? "Please enter the 6-digit code sent to your email."
+                : "Here are your account details:"}
             </DialogDescription>
           </DialogHeader>
           {step === "email" ? (
@@ -178,7 +226,7 @@ export default function Home() {
                 </button>
               </div>
             </form>
-          ) : (
+          ) : step === "otp" ? (
             <form onSubmit={handleVerifyOtp} className="p-4 space-y-4">
               <div className="flex flex-col items-center space-y-4">
                 <InputOTP
@@ -223,6 +271,30 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          ) : (
+            <div className="p-4 space-y-4">
+              {userTimestamps && (
+                <div className="space-y-2">
+                  <div>
+                    <span className="font-semibold">Date Joined:</span>{" "}
+                    {new Date(userTimestamps.dateJoined).toLocaleDateString()}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Last Authentication:</span>{" "}
+                    {new Date(userTimestamps.lastAuthTime).toLocaleDateString()}
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end">
+                <button 
+                  type="button" 
+                  className="btn variant-filled"
+                  onClick={handleClose}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>

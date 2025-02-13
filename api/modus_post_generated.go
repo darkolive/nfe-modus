@@ -4,9 +4,11 @@ package main
 
 import (
 	"unsafe"
-	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
 	"nfe-modus/api/functions/auth"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
+	"nfe-modus/api/functions/user"
+	"time"
 )
 
 var __pins = make(map[unsafe.Pointer]int)
@@ -85,92 +87,117 @@ func __new(id int) unsafe.Pointer {
 		__pins[p]++
 		return p
 	case 15:
-		o := new(string)
+		o := new(user.GetUserTimestampsInput)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 16:
-		o := new([]*dgraph.Mutation)
+		o := new(user.UserTimestamps)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 17:
-		o := new([]*http.Header)
+		o := new(string)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 18:
-		o := new([]string)
+		o := new([]*dgraph.Mutation)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 19:
-		o := new(dgraph.Mutation)
+		o := new([]*http.Header)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 20:
-		o := new(dgraph.Query)
+		o := new([]string)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 21:
-		o := new(dgraph.Request)
+		o := new(dgraph.Mutation)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 22:
-		o := new(dgraph.Response)
+		o := new(dgraph.Query)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 23:
-		o := new(http.Header)
+		o := new(dgraph.Request)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 24:
-		o := new(http.Headers)
+		o := new(dgraph.Response)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 25:
-		o := new(http.Request)
+		o := new(http.Header)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 26:
-		o := new(http.Response)
+		o := new(http.Headers)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 27:
-		o := new(map[string]*http.Header)
+		o := new(http.Request)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 28:
-		o := new(map[string]string)
+		o := new(http.Response)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 29:
-		o := new(auth.GenerateOTPRequest)
+		o := new(map[string]*http.Header)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 30:
-		o := new(auth.GenerateOTPResponse)
+		o := new(map[string]string)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 31:
-		o := new(auth.VerifyOTPRequest)
+		o := new(auth.GenerateOTPRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 32:
+		o := new(auth.GenerateOTPResponse)
+		p := unsafe.Pointer(o)
+		__pins[p]++
+		return p
+	case 33:
+		o := new(auth.VerifyOTPRequest)
+		p := unsafe.Pointer(o)
+		__pins[p]++
+		return p
+	case 34:
 		o := new(auth.VerifyOTPResponse)
+		p := unsafe.Pointer(o)
+		__pins[p]++
+		return p
+	case 35:
+		o := new(user.GetUserTimestampsInput)
+		p := unsafe.Pointer(o)
+		__pins[p]++
+		return p
+	case 36:
+		o := new(user.UserTimestamps)
+		p := unsafe.Pointer(o)
+		__pins[p]++
+		return p
+	case 37:
+		o := new(time.Time)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
@@ -192,27 +219,27 @@ func __make(id, size int) unsafe.Pointer {
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 16:
+	case 18:
 		o := make([]*dgraph.Mutation, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 17:
+	case 19:
 		o := make([]*http.Header, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 18:
+	case 20:
 		o := make([]string, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 27:
+	case 29:
 		o := make(map[string]*http.Header, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 28:
+	case 30:
 		o := make(map[string]string, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
@@ -225,9 +252,9 @@ func __make(id, size int) unsafe.Pointer {
 //go:export __read_map
 func __read_map(id int, m unsafe.Pointer) uint64 {
 	switch id {
-	case 27:
+	case 29:
 		return __doReadMap(*(*map[string]*http.Header)(m))
-	case 28:
+	case 30:
 		return __doReadMap(*(*map[string]string)(m))
 	}
 
@@ -254,9 +281,9 @@ func __doReadMap[M ~map[K]V, K comparable, V any](m M) uint64 {
 //go:export __write_map
 func __write_map(id int, m, keys, values unsafe.Pointer) {
 	switch id {
-	case 27:
+	case 29:
 		__doWriteMap(*(*map[string]*http.Header)(m), *(*[]string)(keys), *(*[]*http.Header)(values))
-	case 28:
+	case 30:
 		__doWriteMap(*(*map[string]string)(m), *(*[]string)(keys), *(*[]string)(values))
 	}
 }

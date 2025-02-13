@@ -4,6 +4,7 @@ package main
 
 import (
 	"nfe-modus/api/functions/auth"
+	"nfe-modus/api/functions/user"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
 )
 
@@ -21,6 +22,15 @@ func __modus_GenerateOTP(req *auth.GenerateOTPRequest) *auth.GenerateOTPResponse
 //go:export verifyOTP
 func __modus_VerifyOTP(req *auth.VerifyOTPRequest) *auth.VerifyOTPResponse {
 	r0, err := VerifyOTP(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export getUserTimestamps
+func __modus_GetUserTimestamps(req *user.GetUserTimestampsInput) *user.UserTimestamps {
+	r0, err := GetUserTimestamps(req)
 	if err != nil {
 		console.Error(err.Error())
 	}

@@ -9,6 +9,7 @@ import (
 
 	"nfe-modus/api/functions/auth"
 	"nfe-modus/api/functions/email"
+	"nfe-modus/api/functions/user"
 )
 
 const (
@@ -99,4 +100,9 @@ func VerifyOTP(req *auth.VerifyOTPRequest) (*auth.VerifyOTPResponse, error) {
 	emailService := email.NewService()
 	otpService := auth.NewOTPService(connection, emailService)
 	return otpService.VerifyOTP(req)
+}
+
+// @modus:function
+func GetUserTimestamps(req *user.GetUserTimestampsInput) (*user.UserTimestamps, error) {
+	return user.GetUserTimestamps(req)
 }

@@ -3,9 +3,9 @@
 package main
 
 import (
-	"nfe-modus/api/functions/auth"
 	"nfe-modus/api/functions/user"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
+	"nfe-modus/api/functions/auth"
 )
 
 func main() {}

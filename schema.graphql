@@ -1,40 +1,37 @@
-<dateJoined>: datetime @index(hour) .
-<dgraph.drop.op>: string .
-<dgraph.graphql.p_query>: string @index(sha256) .
-<dgraph.graphql.schema>: string .
-<dgraph.graphql.xid>: string @index(exact) @upsert .
-<email>: string @index(exact) @upsert .
-<failedAttempts>: int @index(int) .
-<lastAuthTime>: datetime @index(hour) .
-<otp>: string .
-<otpCreatedAt>: datetime @index(hour) .
-<status>: string @index(exact) .
-<verified>: bool @index(bool) .
-
-type <User> {
-	email
-	otp
-	otpCreatedAt
-	failedAttempts
-	verified
-	lastAuthTime
-	status
-	dateJoined
-}
-
-type <dgraph.graphql> {
-	dgraph.graphql.schema
-	dgraph.graphql.xid
-}
-
-type <dgraph.graphql.persisted_query> {
-	dgraph.graphql.p_query
-}
-
 type Query {
   generateOTP(req: GenerateOTPRequestInput!): GenerateOTPResponse!
   verifyOTP(req: VerifyOTPRequestInput!): VerifyOTPResponse!
   userTimestamps(req: GetUserTimestampsInput!): UserTimestamps!
+}
+
+input GenerateOTPRequestInput {
+  email: String!
+}
+
+type GenerateOTPResponse {
+  success: Boolean!
+  message: String!
+}
+
+input VerifyOTPRequestInput {
+  email: String!
+  otp: String!
+}
+
+type VerifyOTPResponse {
+  success: Boolean!
+  message: String!
+  token: String
+  user: User
+}
+
+type User {
+  id: ID!
+  email: String!
+  dateJoined: Time!
+  lastAuthTime: Time!
+  status: String!
+  verified: Boolean!
 }
 
 input GetUserTimestampsInput {
@@ -44,4 +41,9 @@ input GetUserTimestampsInput {
 type UserTimestamps {
   dateJoined: Time!
   lastAuthTime: Time!
+  daysSinceJoined: Int!
+  lastSeenStatus: String!
+  isActive: Boolean!
 }
+
+scalar Time

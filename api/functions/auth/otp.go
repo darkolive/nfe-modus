@@ -74,12 +74,17 @@ func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse,
 }
 
 func (s *OTPService) generateOTP(email string) (string, error) {
+	now := time.Now()
+	otp := fmt.Sprintf("%06d", rand.Intn(1000000))
+
+	// Using DQL upsert to handle both new and existing users
 	query := &dgraph.Query{
 		Query: `query userExists($email: string) {
-			user(func: eq(email, $email), first: 1) {
+			user(func: eq(email, $email)) {
 				uid
 				email
 				status
+				otpCreatedAt
 			}
 		}`,
 		Variables: map[string]string{
@@ -94,9 +99,10 @@ func (s *OTPService) generateOTP(email string) (string, error) {
 
 	var result struct {
 		User []struct {
-			UID    string `json:"uid"`
-			Email  string `json:"email"`
-			Status string `json:"status"`
+			UID          string    `json:"uid"`
+			Email        string    `json:"email"`
+			Status       string    `json:"status"`
+			OTPCreatedAt time.Time `json:"otpCreatedAt,omitempty"`
 		} `json:"user"`
 	}
 
@@ -104,68 +110,86 @@ func (s *OTPService) generateOTP(email string) (string, error) {
 		return "", fmt.Errorf("failed to parse response: %v", err)
 	}
 
-	otp := fmt.Sprintf("%06d", rand.Intn(1000000))
-	now := time.Now()
-
-	var setNquads string
-	var delNquads string
+	// Handle existing user
 	if len(result.User) > 0 {
 		user := result.User[0]
-		
-		switch user.Status {
-		case "suspended":
-			return "", fmt.Errorf("account is suspended")
-		case "deactivated":
-			return "", fmt.Errorf("account is deactivated")
+
+		// Check if user is active
+		if user.Status != "" && user.Status != "active" {
+			return "", fmt.Errorf("account is not active")
 		}
 
-		setNquads = fmt.Sprintf(`
-			<%s> <otp> "%s" .
-			<%s> <otpCreatedAt> "%s" .
-		`, user.UID, otp, user.UID, now.Format(time.RFC3339))
+		// Check rate limiting
+		if !user.OTPCreatedAt.IsZero() {
+			timeSince := now.Sub(user.OTPCreatedAt)
+			if timeSince.Minutes() < 1 {
+				return "", fmt.Errorf("please wait %d seconds before requesting another OTP", int(60-timeSince.Seconds()))
+			}
+		}
 
-		delNquads = fmt.Sprintf(`
-			<%s> <sessionToken> * .
-			<%s> <sessionExpiry> * .
-		`, user.UID, user.UID)
-	} else {
-		setNquads = fmt.Sprintf(`
+		// Update existing user with new OTP
+		mutation := &dgraph.Mutation{
+			SetNquads: fmt.Sprintf(`
+				<%s> <otp> "%s" .
+				<%s> <otpCreatedAt> "%s"^^<xs:dateTime> .
+				<%s> <failedAttempts> "0" .
+			`, user.UID, otp, user.UID, now.Format(time.RFC3339), user.UID),
+		}
+
+		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
+			return "", fmt.Errorf("failed to update user OTP: %v", err)
+		}
+
+		return otp, nil
+	}
+
+	// Create new user with DQL
+	mutation := &dgraph.Mutation{
+		SetNquads: fmt.Sprintf(`
 			_:user <dgraph.type> "User" .
 			_:user <email> "%s" .
 			_:user <otp> "%s" .
-			_:user <otpCreatedAt> "%s" .
+			_:user <otpCreatedAt> "%s"^^<xs:dateTime> .
 			_:user <status> "active" .
-			_:user <dateJoined> "%s" .
+			_:user <dateJoined> "%s"^^<xs:dateTime> .
 			_:user <failedAttempts> "0" .
-		`, email, otp, now.Format(time.RFC3339), now.Format(time.RFC3339))
+			_:user <verified> "false" .
+		`, email, otp, now.Format(time.RFC3339), now.Format(time.RFC3339)),
 	}
 
-	mutation := &dgraph.Mutation{
-		SetNquads: setNquads,
-		DelNquads: delNquads,
+	mutResp, err := dgraph.ExecuteMutations(s.conn, mutation)
+	if err != nil {
+		return "", fmt.Errorf("failed to create user: %v", err)
 	}
 
-	if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
-		return "", fmt.Errorf("failed to update user: %v", err)
+	// Check if user was created successfully
+	if len(mutResp.Uids) == 0 {
+		return "", fmt.Errorf("failed to create user: no uid returned")
 	}
 
 	return otp, nil
 }
 
 func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error) {
+	now := time.Now()
+
 	query := &dgraph.Query{
-		Query: `query getUser($email: string) {
+		Query: `query verifyOTP($email: string, $otp: string) {
 			user(func: eq(email, $email), first: 1) {
 				uid
 				email
+				status
 				otp
 				otpCreatedAt
-				status
 				failedAttempts
+				verified
+				dateJoined
+				lastAuthTime
 			}
 		}`,
 		Variables: map[string]string{
 			"$email": req.Email,
+			"$otp":   req.OTP,
 		},
 	}
 
@@ -176,12 +200,15 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 
 	var result struct {
 		User []struct {
-			UID            string    `json:"uid"`
-			Email          string    `json:"email"`
-			OTP            string    `json:"otp"`
-			OTPCreatedAt   time.Time `json:"otpCreatedAt"`
-			Status         string    `json:"status"`
-			FailedAttempts int       `json:"failedAttempts"`
+			UID           string    `json:"uid"`
+			Email         string    `json:"email"`
+			Status        string    `json:"status"`
+			OTP          string    `json:"otp"`
+			OTPCreatedAt time.Time `json:"otpCreatedAt"`
+			FailedAttempts int    `json:"failedAttempts"`
+			Verified     bool      `json:"verified"`
+			DateJoined   time.Time `json:"dateJoined"`
+			LastAuthTime time.Time `json:"lastAuthTime"`
 		} `json:"user"`
 	}
 
@@ -195,63 +222,44 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 
 	user := result.User[0]
 
-	// Check account status
-	switch user.Status {
-	case "suspended":
-		return nil, fmt.Errorf("account is suspended")
-	case "deactivated":
-		return nil, fmt.Errorf("account is deactivated")
+	// Check user status
+	if user.Status != "active" {
+		return nil, fmt.Errorf("account is %s", user.Status)
 	}
 
-	// Check if OTP is expired (10 minutes)
-	if time.Since(user.OTPCreatedAt) > 10*time.Minute {
-		return nil, fmt.Errorf("OTP has expired")
+	// Check failed attempts
+	if user.FailedAttempts >= 5 {
+		return nil, fmt.Errorf("too many failed attempts, please request a new OTP")
 	}
 
-	// Check if OTP matches
+	// Check OTP expiry
+	if time.Since(user.OTPCreatedAt) > 5*time.Minute {
+		return nil, fmt.Errorf("OTP has expired, please request a new one")
+	}
+
+	// Check OTP match
 	if user.OTP != req.OTP {
 		// Increment failed attempts
-		failedAttempts := user.FailedAttempts + 1
-
-		setNquads := fmt.Sprintf(`<%s> <failedAttempts> "%d" .`, user.UID, failedAttempts)
-		
-		// If too many failed attempts, suspend the account
-		if failedAttempts >= 5 {
-			setNquads += fmt.Sprintf(`
-				<%s> <status> "suspended" .
-			`, user.UID)
-		}
-
 		mutation := &dgraph.Mutation{
-			SetNquads: setNquads,
+			SetNquads: fmt.Sprintf(`
+				<%s> <failedAttempts> "%d" .
+			`, user.UID, user.FailedAttempts+1),
 		}
 
 		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
 			return nil, fmt.Errorf("failed to update failed attempts: %v", err)
 		}
 
-		if failedAttempts >= 5 {
-			return nil, fmt.Errorf("account has been suspended due to too many failed attempts")
-		}
-
 		return nil, fmt.Errorf("invalid OTP")
 	}
 
-	// Generate JWT instead of session token
-	token, err := GenerateJWT(user.UID, user.Email)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate JWT: %v", err)
-	}
-
-	// Update user and clear OTP
+	// OTP is valid, update user
 	mutation := &dgraph.Mutation{
 		SetNquads: fmt.Sprintf(`
+			<%s> <verified> "true" .
+			<%s> <lastAuthTime> "%s"^^<xs:dateTime> .
 			<%s> <failedAttempts> "0" .
-		`, user.UID),
-		DelNquads: fmt.Sprintf(`
-			<%s> <otp> * .
-			<%s> <otpCreatedAt> * .
-		`, user.UID, user.UID),
+		`, user.UID, user.UID, now.Format(time.RFC3339), user.UID),
 	}
 
 	if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
@@ -261,7 +269,7 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	return &VerifyOTPResponse{
 		Success: true,
 		Message: "OTP verified successfully",
-		Token:   token,
+		Token:   generateSessionToken(),
 		User: &User{
 			ID:    user.UID,
 			Email: user.Email,

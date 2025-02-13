@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"log"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
@@ -28,49 +30,34 @@ func init() {
 		log.Printf("Failed to drop old attributes: %v", err)
 	}
 
-	// Update User type without session fields
-	typeSchema := `
-		<dateJoined>: datetime @index(hour) .
-		<email>: string @index(exact) @upsert .
-		<failedAttempts>: int @index(int) .
-		<lastAuthTime>: datetime @index(hour) .
-		<otp>: string .
-		<otpCreatedAt>: datetime @index(hour) .
-		<status>: string @index(exact) .
-		<verified>: bool @index(bool) .
+	// Read and apply schema from file
+	schemaBytes, err := os.ReadFile("/Users/darrenknipe/Hypermode/nfe-modus/schema.dgraph")
+	if err != nil {
+		log.Printf("Failed to read schema file: %v", err)
+		return
+	}
 
-		type User {
-			email
-			otp
-			otpCreatedAt
-			failedAttempts
-			verified
-			lastAuthTime
-			status
-			dateJoined
-		}
-	`
-
-	if err := dgraph.AlterSchema(connection, typeSchema); err != nil {
-		log.Printf("Failed to update User type: %v", err)
+	if err := dgraph.AlterSchema(connection, string(schemaBytes)); err != nil {
+		log.Printf("Failed to update schema: %v", err)
 	}
 }
 
 // @modus:function
 func GenerateOTP(req *auth.GenerateOTPRequest) (*auth.GenerateOTPResponse, error) {
-	emailService := email.NewService()
+	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	return otpService.GenerateOTP(req)
 }
 
 // @modus:function
 func VerifyOTP(req *auth.VerifyOTPRequest) (*auth.VerifyOTPResponse, error) {
-	emailService := email.NewService()
+	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	return otpService.VerifyOTP(req)
 }
 
 // @modus:function
 func GetUserTimestamps(req *user.GetUserTimestampsInput) (*user.UserTimestamps, error) {
-	return user.GetUserTimestamps(req)
+	userService := user.NewUserService(connection)
+	return userService.GetUserTimestamps(context.Background(), req)
 }

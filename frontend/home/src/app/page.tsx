@@ -44,9 +44,20 @@ const GET_USER_TIMESTAMPS_QUERY = `
     userTimestamps(req: $req) {
       dateJoined
       lastAuthTime
+      daysSinceJoined
+      lastSeenStatus
+      isActive
     }
   }
 `;
+
+interface UserTimestamps {
+  dateJoined: string;
+  lastAuthTime: string;
+  daysSinceJoined: number;
+  lastSeenStatus: string;
+  isActive: boolean;
+}
 
 export default function Home() {
   const [email, setEmail] = useState("");
@@ -55,7 +66,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"email" | "otp" | "success">("email");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [timestamps, setTimestamps] = useState<{ dateJoined?: string; lastAuthTime?: string } | null>(null);
+  const [timestamps, setTimestamps] = useState<UserTimestamps | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -288,12 +299,11 @@ export default function Home() {
               </div>
               {timestamps && (
                 <div className="mt-4 space-y-2 text-sm text-gray-600">
-                  {timestamps.dateJoined && (
-                    <p>Member since: {new Date(timestamps.dateJoined).toLocaleDateString()}</p>
-                  )}
-                  {timestamps.lastAuthTime && (
-                    <p>Last login: {new Date(timestamps.lastAuthTime).toLocaleDateString()}</p>
-                  )}
+                  <p>Member since: {new Date(timestamps.dateJoined).toLocaleDateString()}</p>
+                  <p>Last login: {new Date(timestamps.lastAuthTime).toLocaleDateString()}</p>
+                  <p>Days as member: {timestamps.daysSinceJoined}</p>
+                  <p>Status: {timestamps.lastSeenStatus}</p>
+                  <p>Account active: {timestamps.isActive ? "Yes" : "No"}</p>
                 </div>
               )}
               <div className="flex justify-end">

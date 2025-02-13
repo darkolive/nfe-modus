@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
+	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
 )
 
@@ -15,11 +17,24 @@ type EmailRequest struct {
 	Html    string   `json:"html"`
 }
 
-type Service struct{}
-
-func NewService() *Service {
-	return &Service{}
+type Service struct {
+	conn string
 }
+
+func NewService(conn string) *Service {
+	return &Service{
+		conn: conn,
+	}
+}
+
+// EmailType represents different types of emails
+type EmailType string
+
+const (
+	EmailTypeOTP      EmailType = "OTP"
+	EmailTypeWelcome  EmailType = "Welcome"
+	EmailTypePassword EmailType = "Password"
+)
 
 // baseTemplate is the shared HTML structure for all emails
 const baseTemplate = `
@@ -70,6 +85,77 @@ const baseTemplate = `
 </body>
 </html>`
 
+// trackEmail records email sending in Dgraph
+func (s *Service) trackEmail(to string, emailType EmailType) error {
+	now := time.Now()
+	
+	query := &dgraph.Query{
+		Query: `query trackEmail($email: string, $type: string, $now: string) {
+			user(func: eq(email, $email), first: 1) {
+				uid
+			}
+		}`,
+		Variables: map[string]string{
+			"$email": to,
+			"$type":  string(emailType),
+			"$now":   now.Format(time.RFC3339),
+		},
+	}
+
+	resp, err := dgraph.ExecuteQuery(s.conn, query)
+	if err != nil {
+		return fmt.Errorf("failed to query user: %v", err)
+	}
+
+	var result struct {
+		User []struct {
+			UID string `json:"uid"`
+		} `json:"user"`
+	}
+
+	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	// Create email history entry
+	var setNquads string
+	if len(result.User) > 0 {
+		setNquads = fmt.Sprintf(`
+			_:email <dgraph.type> "EmailHistory" .
+			_:email <emailType> "%s" .
+			_:email <sentAt> "%s" .
+			_:email <recipient> "%s" .
+			<%s> <emailHistory> _:email .
+		`, 
+			emailType, 
+			now.Format(time.RFC3339), 
+			to,
+			result.User[0].UID,
+		)
+	} else {
+		setNquads = fmt.Sprintf(`
+			_:email <dgraph.type> "EmailHistory" .
+			_:email <emailType> "%s" .
+			_:email <sentAt> "%s" .
+			_:email <recipient> "%s" .
+		`, 
+			emailType, 
+			now.Format(time.RFC3339), 
+			to,
+		)
+	}
+
+	mutation := &dgraph.Mutation{
+		SetNquads: setNquads,
+	}
+
+	if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
+		return fmt.Errorf("failed to track email: %v", err)
+	}
+
+	return nil
+}
+
 // SendOTP sends an OTP email
 func (s *Service) SendOTP(to, otp string) error {
 	title := "Your One-Time Password"
@@ -84,7 +170,11 @@ func (s *Service) SendOTP(to, otp string) error {
 
 	htmlContent := fmt.Sprintf(baseTemplate, title, content)
 
-	return s.sendEmail(to, title, htmlContent)
+	if err := s.sendEmail(to, title, htmlContent); err != nil {
+		return err
+	}
+
+	return s.trackEmail(to, EmailTypeOTP)
 }
 
 // SendWelcome sends a welcome email to new users
@@ -104,7 +194,11 @@ func (s *Service) SendWelcome(to string) error {
 
 	htmlContent := fmt.Sprintf(baseTemplate, title, content)
 
-	return s.sendEmail(to, title, htmlContent)
+	if err := s.sendEmail(to, title, htmlContent); err != nil {
+		return err
+	}
+
+	return s.trackEmail(to, EmailTypeWelcome)
 }
 
 // SendPasswordReset sends a password reset email
@@ -121,7 +215,11 @@ func (s *Service) SendPasswordReset(to, resetToken string) error {
 
 	htmlContent := fmt.Sprintf(baseTemplate, title, content)
 
-	return s.sendEmail(to, title, htmlContent)
+	if err := s.sendEmail(to, title, htmlContent); err != nil {
+		return err
+	}
+
+	return s.trackEmail(to, EmailTypePassword)
 }
 
 // sendEmail is a helper function to send emails via the Resend API

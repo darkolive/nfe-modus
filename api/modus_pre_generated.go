@@ -3,7 +3,7 @@
 package main
 
 import (
-	"nfe-modus/api/internal/auth"
+	"nfe-modus/api/functions/auth"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
 )
 

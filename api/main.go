@@ -7,8 +7,8 @@ import (
 
 	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
 
-	"nfe-modus/api/internal/auth"
-	"nfe-modus/api/internal/email"
+	"nfe-modus/api/functions/auth"
+	"nfe-modus/api/functions/email"
 )
 
 const (

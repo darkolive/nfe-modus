@@ -48,6 +48,13 @@ type VerifyOTPRequest struct {
 type VerifyOTPResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+	Token   string `json:"token,omitempty"`
+	User    *User  `json:"user,omitempty"`
+}
+
+type User struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
 }
 
 func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse, error) {
@@ -230,17 +237,17 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 		return nil, fmt.Errorf("invalid OTP")
 	}
 
-	// Generate session token
-	sessionToken := generateSessionToken()
-	sessionExpiry := time.Now().Add(24 * time.Hour)
+	// Generate JWT instead of session token
+	token, err := GenerateJWT(user.UID, user.Email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate JWT: %v", err)
+	}
 
-	// Update user with session token and clear OTP
+	// Update user and clear OTP
 	mutation := &dgraph.Mutation{
 		SetNquads: fmt.Sprintf(`
-			<%s> <sessionToken> "%s" .
-			<%s> <sessionExpiry> "%s" .
 			<%s> <failedAttempts> "0" .
-		`, user.UID, sessionToken, user.UID, sessionExpiry.Format(time.RFC3339), user.UID),
+		`, user.UID),
 		DelNquads: fmt.Sprintf(`
 			<%s> <otp> * .
 			<%s> <otpCreatedAt> * .
@@ -248,12 +255,17 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	}
 
 	if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
-		return nil, fmt.Errorf("failed to update user session: %v", err)
+		return nil, fmt.Errorf("failed to update user: %v", err)
 	}
 
 	return &VerifyOTPResponse{
 		Success: true,
 		Message: "OTP verified successfully",
+		Token:   token,
+		User: &User{
+			ID:    user.UID,
+			Email: user.Email,
+		},
 	}, nil
 }
 

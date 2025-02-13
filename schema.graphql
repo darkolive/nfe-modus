@@ -5,36 +5,36 @@
 <dgraph.graphql.xid>: string @index(exact) @upsert .
 <email>: string @index(exact) @upsert .
 <failedAttempts>: int @index(int) .
-<lastAuthTime>: datetime .
+<lastAuthTime>: datetime @index(hour) .
 <otp>: string .
 <otpCreatedAt>: datetime @index(hour) .
-<sessionExpiry>: datetime @index(hour) .
-<sessionToken>: string .
 <status>: string @index(exact) .
 <verified>: bool @index(bool) .
+
 type <User> {
 	email
 	otp
 	otpCreatedAt
 	failedAttempts
 	verified
-	sessionToken
-	sessionExpiry
 	lastAuthTime
 	status
 	dateJoined
 }
+
 type <dgraph.graphql> {
 	dgraph.graphql.schema
 	dgraph.graphql.xid
 }
+
 type <dgraph.graphql.persisted_query> {
 	dgraph.graphql.p_query
 }
+
 type Query {
   generateOTP(req: GenerateOTPRequestInput!): GenerateOTPResponse!
   verifyOTP(req: VerifyOTPRequestInput!): VerifyOTPResponse!
-  getUserTimestamps(req: GetUserTimestampsInput!): UserTimestamps!
+  userTimestamps(req: GetUserTimestampsInput!): UserTimestamps!
 }
 
 input GetUserTimestampsInput {

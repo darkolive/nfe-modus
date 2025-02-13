@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { signIn } from "next-auth/react";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,11 @@ const VERIFY_OTP_QUERY = `
     verifyOTP(req: $req) {
       success
       message
+      token
+      user {
+        iD
+        email
+      }
     }
   }
 `;
@@ -49,10 +55,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"email" | "otp" | "success">("email");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [userTimestamps, setUserTimestamps] = useState<{
-    dateJoined: string;
-    lastAuthTime: string;
-  } | null>(null);
+  const [timestamps, setTimestamps] = useState<{ dateJoined?: string; lastAuthTime?: string } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,9 +131,20 @@ export default function Home() {
       }
 
       if (data.data?.verifyOTP?.success) {
-        console.log("OTP Verified:", data.data.verifyOTP.message);
+        const { token, user } = data.data.verifyOTP;
         
-        // Fetch user timestamps after successful verification
+        // Sign in with Auth.js using the JWT
+        const result = await signIn("credentials", {
+          token,
+          user: JSON.stringify(user),
+          redirect: false,
+        });
+
+        if (result?.error) {
+          throw new Error(result.error);
+        }
+
+        // Fetch user timestamps
         const timestampsResponse = await fetch('http://localhost:8686/graphql', {
           method: 'POST',
           headers: {
@@ -147,15 +161,10 @@ export default function Home() {
         });
 
         const timestampsData = await timestampsResponse.json();
-
-        if (timestampsData.errors) {
-          throw new Error(timestampsData.errors[0].message);
+        if (timestampsData.data?.userTimestamps) {
+          setTimestamps(timestampsData.data.userTimestamps);
         }
 
-        setUserTimestamps({
-          dateJoined: timestampsData.data?.userTimestamps?.dateJoined || '',
-          lastAuthTime: timestampsData.data?.userTimestamps?.lastAuthTime || ''
-        });
         setStep("success");
       } else {
         throw new Error(data.data?.verifyOTP?.message || "Failed to verify OTP");
@@ -172,7 +181,6 @@ export default function Home() {
     setStep("email");
     setOtp("");
     setEmail("");
-    setUserTimestamps(null);
     setError(null);
   };
 
@@ -273,16 +281,19 @@ export default function Home() {
             </form>
           ) : (
             <div className="p-4 space-y-4">
-              {userTimestamps && (
-                <div className="space-y-2">
-                  <div>
-                    <span className="font-semibold">Date Joined:</span>{" "}
-                    {new Date(userTimestamps.dateJoined).toLocaleDateString()}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Last Authentication:</span>{" "}
-                    {new Date(userTimestamps.lastAuthTime).toLocaleDateString()}
-                  </div>
+              <div className="space-y-2">
+                <div>
+                  <span className="font-semibold">You have been successfully verified.</span>
+                </div>
+              </div>
+              {timestamps && (
+                <div className="mt-4 space-y-2 text-sm text-gray-600">
+                  {timestamps.dateJoined && (
+                    <p>Member since: {new Date(timestamps.dateJoined).toLocaleDateString()}</p>
+                  )}
+                  {timestamps.lastAuthTime && (
+                    <p>Last login: {new Date(timestamps.lastAuthTime).toLocaleDateString()}</p>
+                  )}
                 </div>
               )}
               <div className="flex justify-end">

@@ -1,2 +1,4 @@
+github.com/golang-jwt/jwt/v5 v5.2.1 h1:OuVbFODueb089Lh128TAcimifWaLhJwVflnrgM17wHk=
+github.com/golang-jwt/jwt/v5 v5.2.1/go.mod h1:pqrtFR0X4osieyHYxtmOUWsAWrfe1Q5UVIyoH402zdk=
 github.com/hypermodeinc/modus/sdk/go v0.17.1 h1:mBuAEigt1vajdGJ0gXUbviptHL9tlVl0sCwqdp/Yhug=
 github.com/hypermodeinc/modus/sdk/go v0.17.1/go.mod h1:aWA2B+sq62gjrkTnwV2IZt3IcdpAti16dta6MbG9phY=

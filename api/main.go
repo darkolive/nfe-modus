@@ -19,64 +19,32 @@ const (
 func init() {
 	rand.Seed(time.Now().UnixNano())
 
-	// First migrate existing users to have status field using their createdDate
-	migration := &dgraph.Mutation{
-		SetNquads: `
-			upsert {
-				query {
-					var(func: type(User)) @filter(not has(status)) {
-						u as uid
-						c as createdDate
-					}
-				}
-				mutation {
-					set {
-						uid(u) <status> "active" .
-						uid(u) <dateJoined> val(c) .
-					}
-				}
-			}
-		`,
+	// Drop old attributes first
+	dropSchema := `
+		<sessionToken>: * .
+		<sessionExpiry>: * .
+	`
+	if err := dgraph.AlterSchema(connection, dropSchema); err != nil {
+		log.Printf("Failed to drop old attributes: %v", err)
 	}
 
-	if _, err := dgraph.ExecuteMutations(connection, migration); err != nil {
-		log.Printf("Failed to migrate users: %v", err)
-	}
-
-	// Drop operations for old schema
-	dropOps := []string{
-		"drop attr: createdDate .",
-		"drop attr: isActive .",
-	}
-
-	for _, op := range dropOps {
-		if err := dgraph.AlterSchema(connection, op); err != nil {
-			log.Printf("Failed to execute drop operation %s: %v", op, err)
-		}
-	}
-
-	// Update schema with new fields
-	newSchema := []string{
-		"status: string @index(exact) .",
-		"dateJoined: datetime @index(hour) .",
-	}
-
-	for _, s := range newSchema {
-		if err := dgraph.AlterSchema(connection, s); err != nil {
-			log.Printf("Failed to add new schema %s: %v", s, err)
-		}
-	}
-
-	// Update User type
+	// Update User type without session fields
 	typeSchema := `
+		<dateJoined>: datetime @index(hour) .
+		<email>: string @index(exact) @upsert .
+		<failedAttempts>: int @index(int) .
+		<lastAuthTime>: datetime @index(hour) .
+		<otp>: string .
+		<otpCreatedAt>: datetime @index(hour) .
+		<status>: string @index(exact) .
+		<verified>: bool @index(bool) .
+
 		type User {
 			email
 			otp
 			otpCreatedAt
 			failedAttempts
 			verified
-			sessionToken
-			sessionExpiry
 			lastAuthTime
 			status
 			dateJoined

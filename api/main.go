@@ -1,46 +1,17 @@
 package main
 
 import (
-	"context"
-	"log"
-	"math/rand"
-	"os"
 	"time"
 
 	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
-
 	"nfe-modus/api/functions/auth"
 	"nfe-modus/api/functions/email"
 	"nfe-modus/api/functions/user"
 )
 
-const (
+var (
 	connection = "my-dgraph"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-
-	// Drop old attributes first
-	dropSchema := `
-		<sessionToken>: * .
-		<sessionExpiry>: * .
-	`
-	if err := dgraph.AlterSchema(connection, dropSchema); err != nil {
-		log.Printf("Failed to drop old attributes: %v", err)
-	}
-
-	// Read and apply schema from file
-	schemaBytes, err := os.ReadFile("/Users/darrenknipe/Hypermode/nfe-modus/schema.dgraph")
-	if err != nil {
-		log.Printf("Failed to read schema file: %v", err)
-		return
-	}
-
-	if err := dgraph.AlterSchema(connection, string(schemaBytes)); err != nil {
-		log.Printf("Failed to update schema: %v", err)
-	}
-}
 
 // @modus:function
 func GenerateOTP(req *auth.GenerateOTPRequest) (*auth.GenerateOTPResponse, error) {
@@ -58,6 +29,40 @@ func VerifyOTP(req *auth.VerifyOTPRequest) (*auth.VerifyOTPResponse, error) {
 
 // @modus:function
 func GetUserTimestamps(req *user.GetUserTimestampsInput) (*user.UserTimestamps, error) {
-	userService := user.NewUserService(connection)
-	return userService.GetUserTimestamps(context.Background(), req)
+	return user.GetUserTimestamps(connection, req)
+}
+
+func getUserTimestamps(email string) (*dgraph.Query, error) {
+	vars := map[string]string{
+		"$email": email,
+		"$now":   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	q := &dgraph.Query{
+		Query: `query getUser($email: string, $now: string) {
+			var(func: eq(email, $email), first: 1) {
+				# Calculate days since joined
+				joined as math(since(dateJoined)/(24*60*60))
+				
+				# Calculate hours since last auth
+				hoursSinceAuth as math(since(lastAuthTime)/(60*60))
+			}
+
+			user(func: eq(email, $email), first: 1) {
+				dateJoined
+				lastAuthTime
+				daysSinceJoined: val(joined)
+				hoursSinceAuth: val(hoursSinceAuth)
+				
+				# Check if user is active (logged in within last 30 days)
+				isActive: lt(since(lastAuthTime), 2592000)
+				
+				# Validate user exists
+				userExists: uid
+			}
+		}`,
+		Variables: vars,
+	}
+
+	return q, nil
 }

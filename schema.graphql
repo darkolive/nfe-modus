@@ -28,10 +28,13 @@ type VerifyOTPResponse {
 type User {
   id: ID!
   email: String!
-  dateJoined: Time!
-  lastAuthTime: Time!
+  dateJoined: DateTime @index(day)!
+  lastAuthTime: DateTime @index(hour)!
   status: String!
   verified: Boolean!
+  otp: String
+  otpCreatedAt: DateTime @index(hour)
+  failedAttempts: Int
 }
 
 input GetUserTimestampsInput {
@@ -39,11 +42,11 @@ input GetUserTimestampsInput {
 }
 
 type UserTimestamps {
-  dateJoined: Time!
-  lastAuthTime: Time!
+  dateJoined: DateTime!
+  lastAuthTime: DateTime!
   daysSinceJoined: Int!
   lastSeenStatus: String!
   isActive: Boolean!
 }
 
-scalar Time
+scalar DateTime

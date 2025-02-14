@@ -1,53 +1,28 @@
-# Time-based fields with appropriate indexes
-<dateJoined>: dateTime @index(hour) .
-<lastAuthTime>: dateTime @index(hour) .
-<otpCreatedAt>: dateTime @index(hour) .
+# Essential time fields with minimal indexing
+<dateJoined>: datetime @index(day) .  # Only need day precision for join date
+<lastAuthTime>: datetime @index(hour) . # Need hour precision for auth/security
+<otpCreatedAt>: datetime @index(hour) . # Need hour precision for OTP expiry
 
-# Identity and status fields
-<email>: string @index(exact) @upsert .
+# Core identity fields
+<email>: string @index(exact) .
 <status>: string @index(exact) .
 <verified>: bool @index(bool) .
 
-# Security and rate limiting fields
-<failedAttempts>: int @index(int) .
-<otp>: string @index(exact) .
+# Security fields
+<failedAttempts>: int .
+<otp>: string .
 
-# Activity tracking fields
-<lastActivity>: dateTime @index(hour) .
-<activityCount>: int @index(int) .
-<deviceId>: string @index(hash) .
-<lastIp>: string @index(term) .
-
-# Email tracking fields
-<emailType>: string @index(exact) .
-<sentAt>: dateTime @index(hour) .
-<recipient>: string @index(exact) .
-<emailHistory>: [uid] @reverse .
-
-# Define User type with all fields
+# Define User type with essential fields
 type User {
   dgraph.type
   email
+  status
   otp
   otpCreatedAt
   failedAttempts
   verified
-  lastAuthTime
-  status
   dateJoined
-  lastActivity
-  activityCount
-  deviceId
-  lastIp
-  emailHistory
-}
-
-# Define EmailHistory type
-type EmailHistory {
-  dgraph.type
-  emailType
-  sentAt
-  recipient
+  lastAuthTime
 }
 
 # Add reverse edges for future features

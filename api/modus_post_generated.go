@@ -4,10 +4,10 @@ package main
 
 import (
 	"unsafe"
-	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
 	"nfe-modus/api/functions/auth"
-	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
 	"nfe-modus/api/functions/user"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
 	"time"
 )
 

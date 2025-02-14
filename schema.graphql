@@ -2,6 +2,7 @@ type Query {
   generateOTP(req: GenerateOTPRequestInput!): GenerateOTPResponse!
   verifyOTP(req: VerifyOTPRequestInput!): VerifyOTPResponse!
   userTimestamps(req: GetUserTimestampsInput!): UserTimestamps!
+  getUser(email: String!): User
 }
 
 input GenerateOTPRequestInput {
@@ -27,14 +28,15 @@ type VerifyOTPResponse {
 
 type User {
   id: ID!
-  email: String!
+  email: String! @id
   dateJoined: DateTime @index(day)!
   lastAuthTime: DateTime @index(hour)!
-  status: String!
+  status: String! @search
   verified: Boolean!
-  otp: String
+  otp: String @search
   otpCreatedAt: DateTime @index(hour)
   failedAttempts: Int
+  lastOTPTime: DateTime
 }
 
 input GetUserTimestampsInput {
@@ -47,6 +49,9 @@ type UserTimestamps {
   daysSinceJoined: Int!
   lastSeenStatus: String!
   isActive: Boolean!
+  status: String!
+  failedAttempts: Int!
+  lastOTPTime: DateTime!
 }
 
 scalar DateTime

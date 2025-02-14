@@ -35,79 +35,86 @@ type GetUserTimestampsInput struct {
 func GetUserTimestamps(conn string, req *GetUserTimestampsInput) (*UserTimestamps, error) {
 	console.Info(fmt.Sprintf("Getting user timestamps for email: %s", req.Email))
 
-	// Combine queries for better performance
-	query := `query getUser($email: string) {
-		user(func: eq(email, $email)) {
-			uid
-			dateJoined
-			lastAuthTime
-			failedAttempts
-			lastOTPTime
-		}
-	}`
+	vars := map[string]string{
+		"$email": req.Email,
+	}
 
-	vars := map[string]string{"$email": req.Email}
-	resp, err := dgraph.ExecuteQuery(conn, &dgraph.Query{Query: query, Variables: vars})
+	query := &dgraph.Query{
+		Query: `query getUser($email: string) {
+			var(func: eq(email, $email)) {
+				dj as dateJoined
+				la as lastAuthTime
+				
+				# Calculate days since joined
+				daysSinceJoined as math(since(dj)/(24*60*60))
+				
+				# Calculate hours since last auth
+				hoursSinceAuth as math(since(la)/(60*60))
+
+				# Calculate if user is active (logged in within last 30 days)
+				isActive as math(since(la) < 2592000)
+			}
+
+			user(func: eq(email, $email)) {
+				dateJoined
+				lastAuthTime
+				daysSinceJoined: val(daysSinceJoined)
+				hoursSinceAuth: val(hoursSinceAuth)
+				isActive: val(isActive)
+				
+				# Validate user exists
+				userExists: uid
+			}
+		}`,
+		Variables: vars,
+	}
+
+	service := NewUserService(conn)
+	resp, err := dgraph.ExecuteQuery(service.conn, query)
 	if err != nil {
-		console.Error(fmt.Sprintf("Failed to get user timestamps - email: %s, error: %v", req.Email, err))
-		return nil, fmt.Errorf("failed to get user timestamps: %v", err)
+		return nil, fmt.Errorf("failed to query user: %v", err)
 	}
 
 	var result struct {
 		User []struct {
-			UID           string    `json:"uid"`
-			DateJoined   time.Time `json:"dateJoined"`
-			LastAuthTime time.Time `json:"lastAuthTime"`
-			FailedAttempts int     `json:"failedAttempts"`
-			LastOTPTime time.Time  `json:"lastOTPTime"`
+			DateJoined      time.Time `json:"dateJoined"`
+			LastAuthTime    time.Time `json:"lastAuthTime"`
+			DaysSinceJoined float64   `json:"daysSinceJoined"`
+			HoursSinceAuth  float64   `json:"hoursSinceAuth"`
+			IsActive        bool      `json:"isActive"`
+			UserExists      string    `json:"userExists"`
 		} `json:"user"`
 	}
 
 	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
-		console.Error(fmt.Sprintf("Failed to unmarshal user data - email: %s, error: %v", req.Email, err))
-		return nil, fmt.Errorf("failed to unmarshal user data: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
-	if len(result.User) == 0 {
-		console.Error(fmt.Sprintf("User not found - email: %s", req.Email))
-		return nil, fmt.Errorf("user not found: %s", req.Email)
+	if len(result.User) == 0 || result.User[0].UserExists == "" {
+		return nil, fmt.Errorf("user not found")
 	}
 
 	user := result.User[0]
-	now := time.Now().UTC()
-	daysSinceJoined := int(now.Sub(user.DateJoined).Hours() / 24)
 
-	// Calculate user status with more precision
-	var status string
-	hoursSinceAuth := now.Sub(user.LastAuthTime).Hours()
+	// Determine last seen status based on hours since last auth
+	var lastSeenStatus string
 	switch {
-	case hoursSinceAuth < 0.25: // 15 minutes
-		status = "Online"
-	case hoursSinceAuth < 24:
-		status = "Today"
-	case hoursSinceAuth < 168: // 7 days
-		status = "ThisWeek"
+	case user.HoursSinceAuth < 1:
+		lastSeenStatus = "Online"
+	case user.HoursSinceAuth < 24:
+		lastSeenStatus = "Today"
+	case user.HoursSinceAuth < 168:
+		lastSeenStatus = "This Week"
 	default:
-		status = "Offline"
+		lastSeenStatus = "Away"
 	}
-
-	// Log for security monitoring
-	// auth.LogAuthAttempt(req.Email, "GetUserTimestamps", true, map[string]string{
-	// 	"status": status,
-	// 	"daysSinceJoined": fmt.Sprintf("%d", daysSinceJoined),
-	// })
-
-	// Check if active in last 30 days
-	isActive := !user.LastAuthTime.IsZero() && user.LastAuthTime.After(now.AddDate(0, 0, -30))
 
 	timestamps := &UserTimestamps{
 		DateJoined:      user.DateJoined,
 		LastAuthTime:    user.LastAuthTime,
-		DaysSinceJoined: daysSinceJoined,
-		LastSeenStatus:  status,
-		IsActive:        isActive,
-		FailedAttempts:  user.FailedAttempts,
-		LastOTPTime:     user.LastOTPTime,
+		DaysSinceJoined: int(user.DaysSinceJoined),
+		LastSeenStatus:  lastSeenStatus,
+		IsActive:        user.IsActive,
 	}
 
 	console.Info(fmt.Sprintf("User timestamps retrieved - email: %s, joined: %v, lastAuth: %v, status: %s, days: %d",

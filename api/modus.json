@@ -18,13 +18,6 @@
       "headers": {
         "Authorization": "Bearer {{EMAIL_API_KEY}}"
       }
-    },
-    "iphub": {
-      "type": "http",
-      "baseUrl": "https://v3.iphub.info/",
-      "headers": {
-        "Authorization": "Bearer {{IPHUB_API_KEY}}"
-      }
     }
   }
 }

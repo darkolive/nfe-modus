@@ -1,0 +1,36 @@
+hashedEmail: string @index(exact) .
+status: string @index(exact) .
+dateJoined: datetime .
+lastAuthTime: datetime .
+userHash: string @index(exact) .
+otp: string .
+otpCreatedAt: datetime .
+failedAttempts: int .
+verificationStatus: string @index(exact) .
+eventType: string @index(exact) .
+timestamp: datetime .
+ipAddress: string @index(exact) .
+userAgent: string .
+details: string .
+
+<User>: uid .
+<AuthenticationAttempt>: uid .
+<AuditLog>: uid .
+
+<User.hashedEmail>: string @index(exact) .
+<User.status>: string @index(exact) .
+<User.dateJoined>: datetime .
+<User.lastAuthTime>: datetime .
+
+<AuthenticationAttempt.userHash>: string @index(exact) .
+<AuthenticationAttempt.otp>: string .
+<AuthenticationAttempt.otpCreatedAt>: datetime .
+<AuthenticationAttempt.failedAttempts>: int .
+<AuthenticationAttempt.verificationStatus>: string @index(exact) .
+
+<AuditLog.userHash>: string @index(exact) .
+<AuditLog.eventType>: string @index(exact) .
+<AuditLog.timestamp>: datetime .
+<AuditLog.ipAddress>: string @index(exact) .
+<AuditLog.userAgent>: string .
+<AuditLog.details>: string .

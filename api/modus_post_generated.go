@@ -4,11 +4,11 @@ package main
 
 import (
 	"unsafe"
-	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
-	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
-	"nfe-modus/api/functions/auth"
 	"nfe-modus/api/functions/user"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
 	"time"
+	"nfe-modus/api/functions/auth"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
 )
 
 var __pins = make(map[unsafe.Pointer]int)

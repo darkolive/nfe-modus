@@ -1,36 +1,34 @@
-hashedEmail: string @index(exact) .
-status: string @index(exact) .
-dateJoined: datetime .
-lastAuthTime: datetime .
-userHash: string @index(exact) .
-otp: string .
-otpCreatedAt: datetime .
-failedAttempts: int .
-verificationStatus: string @index(exact) .
-eventType: string @index(exact) .
-timestamp: datetime .
-ipAddress: string @index(exact) .
-userAgent: string .
-details: string .
+type User {
+    hashedEmail: string @index(exact) .
+    deviceCredentials: [DeviceCredential] @reverse .
+    status: string @index(exact) .
+    dateJoined: datetime .
+    lastAuthTime: datetime .
+}
 
-<User>: uid .
-<AuthenticationAttempt>: uid .
-<AuditLog>: uid .
+type DeviceCredential {
+    did: string @index(exact) .
+    userHash: string @index(exact) .
+    deviceId: string @index(exact) .
+    publicKey: string .
+    lastSyncTime: datetime .
+    isVerified: bool @index(exact) .
+    isRevoked: bool @index(exact) .
+}
 
-<User.hashedEmail>: string @index(exact) .
-<User.status>: string @index(exact) .
-<User.dateJoined>: datetime .
-<User.lastAuthTime>: datetime .
+type AuthAttempt {
+    userHash: string @index(exact) .
+    deviceId: string @index(exact) .
+    timestamp: datetime .
+    status: string @index(exact) .
+    ipAddress: string @index(exact) .
+    failedAttempts: int .
+}
 
-<AuthenticationAttempt.userHash>: string @index(exact) .
-<AuthenticationAttempt.otp>: string .
-<AuthenticationAttempt.otpCreatedAt>: datetime .
-<AuthenticationAttempt.failedAttempts>: int .
-<AuthenticationAttempt.verificationStatus>: string @index(exact) .
-
-<AuditLog.userHash>: string @index(exact) .
-<AuditLog.eventType>: string @index(exact) .
-<AuditLog.timestamp>: datetime .
-<AuditLog.ipAddress>: string @index(exact) .
-<AuditLog.userAgent>: string .
-<AuditLog.details>: string .
+type AuditLog {
+    userHash: string @index(exact) .
+    eventType: string @index(exact) .
+    timestamp: datetime .
+    details: string .
+    metadata: string .
+}

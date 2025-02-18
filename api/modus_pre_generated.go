@@ -8,8 +8,6 @@ import (
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
 )
 
-func main() {}
-
 //go:export generateOTP
 func __modus_GenerateOTP(req *auth.GenerateOTPRequest) *auth.GenerateOTPResponse {
 	r0, err := GenerateOTP(req)
@@ -35,5 +33,31 @@ func __modus_GetUserTimestamps(req *user.GetUserTimestampsInput) *user.UserTimes
 		console.Error(err.Error())
 	}
 	return r0
+}
+
+//go:export registerWebAuthn
+func __modus_RegisterWebAuthn(req *auth.WebAuthnRegistrationRequest) *auth.WebAuthnRegistrationResponse {
+	r0, err := RegisterWebAuthn(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export verifyWebAuthn
+func __modus_VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) *auth.WebAuthnVerificationResponse {
+	r0, err := VerifyWebAuthn(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export startServer
+func __modus_StartServer() {
+	err := StartServer()
+	if err != nil {
+		console.Error(err.Error())
+	}
 }
 

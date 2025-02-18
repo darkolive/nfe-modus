@@ -1,31 +1,110 @@
-# Essential time fields with minimal indexing
-<dateJoined>: datetime @index(day) .  # Only need day precision for join date
-<lastAuthTime>: datetime @index(hour) . # Need hour precision for auth/security
-<otpCreatedAt>: datetime @index(hour) . # Need hour precision for OTP expiry
-
-# Core identity fields
+<authenticationSession.createdAt>: datetime .
+<authenticationSession.deviceID>: string .
+<authenticationSession.expiresAt>: datetime .
+<authenticationSession.id>: string @index(hash) @upsert .
+<authenticationSession.token>: string @index(hash) .
+<authenticationSession.userDID>: string .
+<credentialID>: string .
+<dateJoined>: datetime @index(day) .
+<device.createdAt>: datetime .
+<device.credentialID>: string .
+<device.id>: string @index(hash) @upsert .
+<device.lastUsed>: datetime .
+<device.publicKey>: string .
+<device.userDID>: string .
+<devices>: [uid] @reverse .
+<dgraph.drop.op>: string .
+<dgraph.graphql.p_query>: string @index(sha256) .
+<dgraph.graphql.schema>: string .
+<dgraph.graphql.xid>: string @index(exact) @upsert .
+<did>: string @index(exact) @upsert .
 <email>: string @index(exact) .
+<failedAttempts>: int .
+<hasDevice>: [uid] @reverse .
+<hasRole>: [uid] @reverse .
+<hasSession>: [uid] @reverse .
+<iD>: string @index(exact) .
+<identityCredential.createdAt>: datetime .
+<identityCredential.did>: string @index(exact) @upsert .
+<identityCredential.encryptedData>: string .
+<identityCredential.id>: string @index(hash) @upsert .
+<identityCredential.userRef>: uid .
+<lastAuthTime>: datetime @index(hour) .
+<lastOTPRequestTime>: datetime @index(hour) .
+<name>: string .
+<otp>: string .
+<otpCreatedAt>: datetime @index(hour) .
+<passwordHash>: string .
+<passkeyCredential.createdAt>: datetime .
+<passkeyCredential.encryptedData>: string .
+<passkeyCredential.isRevoked>: bool @index(bool) .
+<passkeyCredential.userHash>: string @index(exact) .
+<publicKey>: string .
+<recoveryHash>: string .
 <status>: string @index(exact) .
 <verified>: bool @index(bool) .
-
-# Security fields
-<failedAttempts>: int .
-<otp>: string .
-
-# Define User type with essential fields
-type User {
-  dgraph.type
-  email
-  status
-  otp
-  otpCreatedAt
-  failedAttempts
-  verified
-  dateJoined
-  lastAuthTime
+<verifyOTP.message>: string .
+<verifyOTP.success>: bool .
+<verifyOTP.token>: string .
+<verifyOTP.user>: uid .
+type <AuthenticationSession> {
+	authenticationSession.id
+	authenticationSession.userDID
+	authenticationSession.token
+	authenticationSession.createdAt
+	authenticationSession.expiresAt
+	authenticationSession.deviceID
 }
-
-# Add reverse edges for future features
-<hasDevice>: [uid] @reverse .
-<hasSession>: [uid] @reverse .
-<hasRole>: [uid] @reverse .
+type <Device> {
+	device.id
+	device.userDID
+	device.credentialID
+	device.publicKey
+	device.lastUsed
+	device.createdAt
+}
+type <IdentityCredential> {
+    identityCredential.id
+    identityCredential.userRef
+    identityCredential.did
+    identityCredential.encryptedData
+    identityCredential.createdAt
+}
+type <PasskeyCredential> {
+    passkeyCredential.userHash
+    passkeyCredential.encryptedData
+    passkeyCredential.createdAt
+    passkeyCredential.isRevoked
+}
+type <User> {
+	iD
+	email
+	did
+	name
+	otp
+	otpCreatedAt
+	lastOTPRequestTime
+	failedAttempts
+	status
+	dateJoined
+	lastAuthTime
+	verified
+	passwordHash
+	recoveryHash
+	credentialID
+	publicKey
+	devices
+}
+type <VerifyOTPResponse> {
+	verifyOTP.success
+	verifyOTP.message
+	verifyOTP.token
+	verifyOTP.user
+}
+type <dgraph.graphql> {
+	dgraph.graphql.schema
+	dgraph.graphql.xid
+}
+type <dgraph.graphql.persisted_query> {
+	dgraph.graphql.p_query
+}

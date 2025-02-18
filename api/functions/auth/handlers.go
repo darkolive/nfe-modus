@@ -11,12 +11,15 @@ import (
 )
 
 type Handler struct {
-	service *Service
+	service    *Service
+	otpService *OTPService
 }
 
 func NewHandler(conn string) *Handler {
+	emailService := NewEmailService(conn)
 	return &Handler{
-		service: NewService(conn),
+		service:    NewService(conn),
+		otpService: NewOTPService(conn, emailService),
 	}
 }
 
@@ -127,6 +130,122 @@ func (h *Handler) HandleAuthenticationComplete(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusOK)
 }
 
+// HandleOTPStart initiates the OTP generation process
+func (h *Handler) HandleOTPStart(w http.ResponseWriter, r *http.Request) {
+	console.Debug("Received OTP start request")
+	
+	if r.Method != http.MethodPost {
+		console.Error("Method not allowed: " + r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Method not allowed",
+		})
+		return
+	}
+
+	var req struct {
+		Email    string `json:"email"`
+		DeviceID string `json:"deviceId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		console.Error("Failed to decode request: " + err.Error())
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Invalid request body",
+		})
+		return
+	}
+
+	console.Debug("Generating OTP for email: " + req.Email)
+
+	genReq := GenerateOTPRequest{
+		Email: req.Email,
+	}
+	resp, err := h.otpService.GenerateOTP(&genReq)
+	if err != nil {
+		console.Error("Failed to generate OTP: " + err.Error())
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
+// HandleOTPRegistration handles OTP-based registration
+func (h *Handler) HandleOTPRegistration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Email    string `json:"email"`
+		DeviceID string `json:"deviceId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		console.Error("Failed to decode request: " + err.Error())
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	genReq := GenerateOTPRequest{
+		Email: req.Email,
+	}
+	resp, err := h.otpService.GenerateOTP(&genReq)
+	if err != nil {
+		console.Error("Failed to generate OTP: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// HandleOTPVerification verifies the provided OTP
+func (h *Handler) HandleOTPVerification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Email    string `json:"email"`
+		DeviceID string `json:"deviceId"`
+		OTP      string `json:"otp"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		console.Error("Failed to decode request: " + err.Error())
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	verifyReq := VerifyOTPRequest{
+		Email: req.Email,
+		OTP:   req.OTP,
+	}
+	resp, err := h.otpService.VerifyOTP(&verifyReq)
+	if err != nil {
+		console.Error("Failed to verify OTP: " + err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // RegisterAuthRoutes registers all auth routes with the server
 func RegisterAuthRoutes(mux *http.ServeMux, conn string) {
 	h := NewHandler(conn)
@@ -138,4 +257,9 @@ func RegisterAuthRoutes(mux *http.ServeMux, conn string) {
 	// Authentication endpoints
 	mux.HandleFunc("/auth/login/start", h.HandleAuthenticationStart)
 	mux.HandleFunc("/auth/login/complete", h.HandleAuthenticationComplete)
+
+	// OTP endpoints
+	mux.HandleFunc("/auth/otp/start", h.HandleOTPStart)
+	mux.HandleFunc("/auth/otp/register", h.HandleOTPRegistration)
+	mux.HandleFunc("/auth/otp/verify", h.HandleOTPVerification)
 }

@@ -1,12 +1,14 @@
 export interface AuthSession {
   did: string;
-  challenge: string;
+  challenge?: string;
+  otpId?: string;
 }
 
 export interface AuthResponse {
   token?: string;
   session: AuthSession;
   needsVerification?: boolean;
+  message?: string;
 }
 
 export interface DeviceCredential {
@@ -20,7 +22,7 @@ export interface DeviceCredential {
 }
 
 export interface APIError {
-  code: string;
   message: string;
-  details?: Record<string, unknown>;
+  code?: string;
+  status?: number;
 }

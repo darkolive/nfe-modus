@@ -55,16 +55,11 @@ type VerifyOTPResponse struct {
 	User    *User  `json:"user,omitempty"`
 }
 
-type User struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-}
-
 const (
-	otpLength = 6
+	otpLength   = 6
 	maxAttempts = 5
-	otpTimeout = 10 * time.Minute
-	otpCooldown = 1 * time.Minute
+	otpTimeout  = 10 * time.Minute
+	otpCooldown = 1 * time.Minute  // Minimum time between OTP requests
 )
 
 // Error messages
@@ -79,17 +74,13 @@ const (
 )
 
 func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse, error) {
+	now := time.Now()
 	otp, err := GenerateOTP()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate OTP: %v", err)
 	}
 
-	if err := ValidateOTPInput(otp); err != nil {
-		return nil, fmt.Errorf("invalid OTP: %v", err)
-	}
-
-	now := time.Now().UTC()
-	// First query to check existing user and status
+	// Check if user exists
 	query := &dgraph.Query{
 		Query: `query userExists($email: string) {
 			user(func: eq(email, $email)) {
@@ -106,85 +97,83 @@ func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse,
 
 	resp, err := dgraph.ExecuteQuery(s.conn, query)
 	if err != nil {
+		console.Error("Failed to query user - email: " + req.Email + ", error: " + err.Error())
 		return nil, fmt.Errorf("failed to query user: %v", err)
 	}
 
 	var result struct {
 		User []struct {
-			UID          string    `json:"uid"`
-			Status       string    `json:"status"`
-			OTPCreatedAt time.Time `json:"otpCreatedAt,omitempty"`
-			LastOTPRequestTime time.Time `json:"lastOTPRequestTime,omitempty"`
+			UID               string `json:"uid"`
+			Status           string `json:"status"`
+			OTPCreatedAt     string `json:"otpCreatedAt"`
+			LastOTPRequestTime string `json:"lastOTPRequestTime"`
 		} `json:"user"`
 	}
 
 	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
+		console.Error("Failed to parse response - email: " + req.Email + ", error: " + err.Error())
 		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
-	// Handle existing user
+	// If user exists, check status and rate limiting
 	if len(result.User) > 0 {
 		user := result.User[0]
 		
-		// Check if user is active
-		if user.Status != "" && user.Status != "active" {
-			return nil, fmt.Errorf("account is not active")
+		// Check account status
+		if user.Status != "active" {
+			console.Error("Account is not active - email: " + req.Email)
+			return &GenerateOTPResponse{
+				Success: false,
+				Message: "account is not active",
+			}, nil
 		}
 
-		// Check rate limiting
-		if !user.LastOTPRequestTime.IsZero() {
-			if !ShouldAllowNewOTP(user.LastOTPRequestTime) {
-				return nil, fmt.Errorf("please wait %d seconds before requesting another OTP", int(otpCooldown.Seconds()-time.Since(user.LastOTPRequestTime).Seconds()))
+		// Check rate limiting if last OTP request time exists
+		if user.LastOTPRequestTime != "" {
+			lastRequest, err := time.Parse(time.RFC3339, user.LastOTPRequestTime)
+			if err == nil && time.Since(lastRequest) < otpCooldown {
+				console.Error("Rate limited - email: " + req.Email + ", last request: " + lastRequest.String())
+				return &GenerateOTPResponse{
+					Success: false,
+					Message: "please wait before requesting another OTP",
+				}, nil
 			}
 		}
 
-		// Update existing user with new OTP using RDF format
+		// Update existing user with new OTP
 		mutation := &dgraph.Mutation{
 			SetNquads: fmt.Sprintf(`
 				<%s> <otp> "%s" .
 				<%s> <otpCreatedAt> "%s" .
 				<%s> <lastOTPRequestTime> "%s" .
 				<%s> <failedAttempts> "0" .
-			`, user.UID, otp, user.UID, now.Format(time.RFC3339), user.UID, now.Format(time.RFC3339), user.UID),
+			`, user.UID, otp, user.UID, now.Format(time.RFC3339), 
+			   user.UID, now.Format(time.RFC3339), user.UID),
 		}
 
 		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
 			return nil, fmt.Errorf("failed to update user OTP: %v", err)
 		}
-
-		if err := s.emailSender.SendOTP(req.Email, otp); err != nil {
-			return nil, fmt.Errorf("failed to send OTP email: %v", err)
+	} else {
+		// Create new user
+		mutation := &dgraph.Mutation{
+			SetNquads: fmt.Sprintf(`
+				_:user <dgraph.type> "User" .
+				_:user <email> "%s" .
+				_:user <otp> "%s" .
+				_:user <otpCreatedAt> "%s" .
+				_:user <lastOTPRequestTime> "%s" .
+				_:user <status> "active" .
+				_:user <dateJoined> "%s" .
+				_:user <failedAttempts> "0" .
+				_:user <verified> "false" .
+			`, req.Email, otp, now.Format(time.RFC3339), 
+			   now.Format(time.RFC3339), now.Format(time.RFC3339)),
 		}
 
-		return &GenerateOTPResponse{
-			Success: true,
-			Message: "OTP sent successfully",
-		}, nil
-	}
-
-	// Create new user using RDF format
-	mutation := &dgraph.Mutation{
-		SetNquads: fmt.Sprintf(`
-			_:user <dgraph.type> "User" .
-			_:user <email> "%s" .
-			_:user <otp> "%s" .
-			_:user <otpCreatedAt> "%s" .
-			_:user <lastOTPRequestTime> "%s" .
-			_:user <status> "active" .
-			_:user <dateJoined> "%s" .
-			_:user <failedAttempts> "0" .
-			_:user <verified> "false" .
-		`, req.Email, otp, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Format(time.RFC3339)),
-	}
-
-	mutResp, err := dgraph.ExecuteMutations(s.conn, mutation)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user: %v", err)
-	}
-
-	// Check if user was created successfully
-	if len(mutResp.Uids) == 0 {
-		return nil, fmt.Errorf("failed to create user: no uid returned")
+		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
+			return nil, fmt.Errorf("failed to create user: %v", err)
+		}
 	}
 
 	if err := s.emailSender.SendOTP(req.Email, otp); err != nil {
@@ -200,20 +189,17 @@ func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse,
 func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error) {
 	now := time.Now()
 
-	console.Info(fmt.Sprintf("Verifying OTP for email: %s", req.Email))
+	console.Info("Verifying OTP for email: " + req.Email)
 
 	query := &dgraph.Query{
 		Query: `query verifyOTP($email: string, $otp: string) {
-			user(func: eq(email, $email)) @filter(has(email) AND eq(status, "active")) {
+			user(func: eq(email, $email), first: 1) {
 				uid
 				email
-				status
-				otp @filter(eq(otp, $otp))
+				otp
 				otpCreatedAt
 				failedAttempts
-				verified
-				dateJoined
-				lastAuthTime
+				status
 			}
 		}`,
 		Variables: map[string]string{
@@ -224,92 +210,88 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 
 	resp, err := dgraph.ExecuteQuery(s.conn, query)
 	if err != nil {
-		console.Error(fmt.Sprintf("Failed to query user - email: %s, error: %v", req.Email, err))
+		console.Error("Failed to query user - email: " + req.Email + ", error: " + err.Error())
 		return nil, fmt.Errorf("failed to query user: %v", err)
 	}
 
 	var result struct {
 		User []struct {
-			UID           string    `json:"uid"`
-			Email         string    `json:"email"`
-			Status        string    `json:"status"`
-			OTP          string    `json:"otp"`
-			OTPCreatedAt string    `json:"otpCreatedAt"`
-			FailedAttempts int     `json:"failedAttempts"`
-			Verified     bool      `json:"verified"`
-			DateJoined   time.Time `json:"dateJoined"`
-			LastAuthTime time.Time `json:"lastAuthTime"`
+			UID           string `json:"uid"`
+			Email         string `json:"email"`
+			OTP           string `json:"otp"`
+			OTPCreatedAt  string `json:"otpCreatedAt"`
+			FailedAttempts int    `json:"failedAttempts"`
+			Status        string `json:"status"`
 		} `json:"user"`
 	}
 
 	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
-		console.Error(fmt.Sprintf("Failed to parse response - email: %s, error: %v", req.Email, err))
+		console.Error("Failed to parse response - email: " + req.Email + ", error: " + err.Error())
 		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if len(result.User) == 0 {
-		console.Error(fmt.Sprintf("User not found - email: %s", req.Email))
-		return nil, fmt.Errorf(errUserNotFound)
+		console.Error("User not found - email: " + req.Email)
+		return nil, fmt.Errorf("invalid email or OTP")
 	}
 
 	user := result.User[0]
 
+	// Check account status
+	if user.Status != "active" {
+		console.Error("Account is not active - email: " + req.Email)
+		return nil, fmt.Errorf("account is not active")
+	}
+
 	// Check failed attempts
 	if HasExceededMaxAttempts(user.FailedAttempts) {
-		console.Error(fmt.Sprintf("Too many failed attempts - email: %s, attempts: %d", req.Email, user.FailedAttempts))
-		return nil, fmt.Errorf(errTooManyAttempts)
-	}
-
-	// Handle empty OTP creation time
-	if user.OTPCreatedAt == "" {
-		console.Error(fmt.Sprintf("OTP creation time not set - email: %s", req.Email))
-		return nil, fmt.Errorf(errOTPNotSet)
-	}
-
-	// Parse OTP creation time
-	otpCreatedAt, err := time.Parse(time.RFC3339Nano, user.OTPCreatedAt)
-	if err != nil {
-		console.Error(fmt.Sprintf("Invalid OTP creation time - email: %s, time: %s, error: %v", req.Email, user.OTPCreatedAt, err))
-		return nil, fmt.Errorf(errInvalidOTPTime, err)
+		console.Error("Too many failed attempts - email: " + req.Email + ", attempts: " + fmt.Sprint(user.FailedAttempts))
+		return nil, fmt.Errorf("too many failed attempts")
 	}
 
 	// Check OTP expiry
-	if IsOTPExpired(otpCreatedAt) {
-		console.Error(fmt.Sprintf("OTP expired - email: %s, created: %v, age: %.2f minutes", req.Email, otpCreatedAt, time.Since(otpCreatedAt).Minutes()))
-		return nil, fmt.Errorf(errOTPExpired)
+	otpCreatedAt, err := time.Parse(time.RFC3339, user.OTPCreatedAt)
+	if err != nil {
+		console.Error("Invalid OTP creation time - email: " + req.Email + ", time: " + user.OTPCreatedAt + ", error: " + err.Error())
+		return nil, fmt.Errorf("invalid OTP")
 	}
 
-	// Check OTP match
-	if user.OTP == "" {
+	if IsOTPExpired(otpCreatedAt) {
+		console.Error("OTP expired - email: " + req.Email + ", created: " + otpCreatedAt.String())
+		return nil, fmt.Errorf("OTP has expired")
+	}
+
+	// Verify OTP
+	if user.OTP != req.OTP {
 		// Increment failed attempts
 		mutation := &dgraph.Mutation{
-			SetNquads: fmt.Sprintf(`<%s> <failedAttempts> "%d" .`, user.UID, user.FailedAttempts+1),
+			SetNquads: fmt.Sprintf("<%s> <failedAttempts> \"%d\" .", user.UID, user.FailedAttempts+1),
 		}
-		mutations := []*dgraph.Mutation{mutation}
-		if _, err := dgraph.ExecuteMutations(s.conn, mutations...); err != nil {
-			console.Error(fmt.Sprintf("Failed to increment attempts - email: %s, error: %v", req.Email, err))
-			return nil, fmt.Errorf(errFailedAttempts, err)
+		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
+			console.Error("Failed to increment attempts - email: " + req.Email + ", error: " + err.Error())
+			return nil, fmt.Errorf("failed to update attempts")
 		}
-		console.Error(fmt.Sprintf("Invalid OTP - email: %s, attempts: %d", req.Email, user.FailedAttempts+1))
+		console.Error("Invalid OTP - email: " + req.Email + ", attempts: " + fmt.Sprint(user.FailedAttempts+1))
 		LogAuthAttempt(req.Email, "verify", false, map[string]string{"otp": req.OTP})
-		return nil, fmt.Errorf(errInvalidOTP)
+		return nil, fmt.Errorf("invalid OTP")
 	}
 
-	// OTP is valid, update user
+	// Clear OTP and update verification status
 	mutation := &dgraph.Mutation{
 		SetNquads: fmt.Sprintf(`
+			<%s> <otp> "" .
 			<%s> <verified> "true" .
-			<%s> <lastAuthTime> "%s"^^<xs:dateTime> .
 			<%s> <failedAttempts> "0" .
-		`, user.UID, user.UID, now.UTC().Format(time.RFC3339Nano), user.UID),
+			<%s> <lastAuthTime> "%s" .
+		`, user.UID, user.UID, user.UID, user.UID, now.Format(time.RFC3339)),
 	}
 
 	if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
-		console.Error(fmt.Sprintf("Failed to update user - email: %s, error: %v", req.Email, err))
-		return nil, fmt.Errorf("failed to update user: %v", err)
+		console.Error("Failed to update user - email: " + req.Email + ", error: " + err.Error())
+		return nil, fmt.Errorf("failed to update user")
 	}
 
-	console.Info(fmt.Sprintf("OTP verified successfully - email: %s", req.Email))
+	console.Info("OTP verified successfully - email: " + req.Email)
 	LogAuthAttempt(req.Email, "verify", true, map[string]string{"otp": req.OTP})
 
 	return &VerifyOTPResponse{
@@ -373,13 +355,15 @@ func HasExceededMaxAttempts(attempts int) bool {
 
 // LogAuthAttempt logs authentication attempts for audit purposes
 func LogAuthAttempt(email, action string, success bool, metadata map[string]string) {
-	logData := fmt.Sprintf("Auth attempt - email: %s, action: %s, success: %v, metadata: %v",
-		email, action, success, metadata)
+	logData := "Auth attempt - email: " + email + 
+		", action: " + action + 
+		", success: " + fmt.Sprint(success) + 
+		", metadata: " + fmt.Sprint(metadata)
 
 	if success {
 		console.Info(logData)
 	} else {
-		console.Warn(logData)
+		console.Error(logData)
 	}
 }
 

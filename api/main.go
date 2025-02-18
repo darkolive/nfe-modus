@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
 	"nfe-modus/api/functions/auth"
 	"nfe-modus/api/functions/email"
@@ -12,6 +13,12 @@ import (
 var (
 	connection = "my-dgraph"
 )
+
+func main() {
+	if err := StartServer(); err != nil {
+		console.Error("Failed to start server: " + err.Error())
+	}
+}
 
 // @modus:function
 func GenerateOTP(req *auth.GenerateOTPRequest) (*auth.GenerateOTPResponse, error) {
@@ -30,6 +37,16 @@ func VerifyOTP(req *auth.VerifyOTPRequest) (*auth.VerifyOTPResponse, error) {
 // @modus:function
 func GetUserTimestamps(req *user.GetUserTimestampsInput) (*user.UserTimestamps, error) {
 	return user.GetUserTimestamps(connection, req)
+}
+
+// @modus:function
+func RegisterWebAuthn(req *auth.WebAuthnRegistrationRequest) (*auth.WebAuthnRegistrationResponse, error) {
+	return auth.RegisterWebAuthn(req)
+}
+
+// @modus:function
+func VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) (*auth.WebAuthnVerificationResponse, error) {
+	return auth.VerifyWebAuthn(req)
 }
 
 func getUserTimestamps(email string) (*dgraph.Query, error) {

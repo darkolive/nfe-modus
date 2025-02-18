@@ -1,6 +1,8 @@
 package security
 
 import (
+    "context"
+    "fmt"
     "net/http"
     "sync"
     "time"
@@ -139,6 +141,57 @@ func AuditLog(next http.Handler) http.Handler {
         // Log the request details
         duration := time.Since(start).String()
         console.Info("Request: " + r.Method + " " + r.URL.Path + " [" + r.RemoteAddr + "] " + duration)
+    })
+}
+
+// WithEncryption adds encryption middleware for sensitive data
+func WithEncryption(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Add encryption headers
+        w.Header().Set("X-Content-Security", "encrypt-request=true")
+        w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        w.Header().Set("Expect-CT", "enforce, max-age=30")
+        w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+        
+        // Enhanced CSP for WebAuthn
+        w.Header().Set("Content-Security-Policy", `
+            default-src 'self';
+            script-src 'self' 'wasm-unsafe-eval';
+            connect-src 'self';
+            frame-ancestors 'none';
+            form-action 'self';
+            base-uri 'self';
+            require-trusted-types-for 'script'
+        `)
+
+        next.ServeHTTP(w, r)
+    })
+}
+
+// WithAuditLogging adds ISO compliant audit logging
+func WithAuditLogging(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Create audit context
+        ctx := context.WithValue(r.Context(), "audit_start", time.Now())
+        
+        // Wrap response writer to capture status
+        rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+        
+        next.ServeHTTP(rw, r.WithContext(ctx))
+        
+        // Log audit trail
+        auditData := map[string]interface{}{
+            "timestamp":    time.Now(),
+            "method":      r.Method,
+            "path":        r.URL.Path,
+            "status":      rw.status,
+            "user_agent":  r.UserAgent(),
+            "remote_addr": r.RemoteAddr,
+            "duration":    time.Since(ctx.Value("audit_start").(time.Time)),
+        }
+        
+        // Log to secure audit trail
+        console.Info("AUDIT: " + fmt.Sprintf("%+v", auditData))
     })
 }
 

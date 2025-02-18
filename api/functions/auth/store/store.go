@@ -2,6 +2,7 @@ package store
 
 import (
     "context"
+    "encoding/base64"
     "encoding/json"
     "fmt"
 
@@ -193,4 +194,81 @@ func (s *Store) LogAudit(ctx context.Context, hashedEmail, eventType, details st
     }
 
     return nil
+}
+
+// SavePasskey stores an encrypted passkey for a user
+func (s *Store) SavePasskey(ctx context.Context, hashedEmail string, encryptedCredential []byte) error {
+    t, err := localtime.Now()
+    if err != nil {
+        return fmt.Errorf("failed to get current time: %v", err)
+    }
+
+    mutation := map[string]interface{}{
+        "set": []map[string]interface{}{
+            {
+                "dgraph.type": "PasskeyCredential",
+                "userHash": hashedEmail,
+                "encryptedData": base64.StdEncoding.EncodeToString(encryptedCredential),
+                "createdAt": t.Format("2006-01-02T15:04:05Z"),
+                "isRevoked": false,
+            },
+        },
+    }
+
+    mutationJSON, err := json.Marshal(mutation)
+    if err != nil {
+        return fmt.Errorf("failed to marshal mutation: %v", err)
+    }
+
+    txn, err := dgraph.NewTransaction(s.conn)
+    if err != nil {
+        console.Error("Failed to create transaction: " + err.Error())
+        return fmt.Errorf("failed to create transaction: %v", err)
+    }
+    defer txn.Close()
+
+    if err := txn.Mutate(ctx, string(mutationJSON)); err != nil {
+        console.Error("Failed to save passkey: " + err.Error())
+        return fmt.Errorf("failed to save passkey: %v", err)
+    }
+
+    return nil
+}
+
+// GetPasskey retrieves the encrypted passkey for a user
+func (s *Store) GetPasskey(ctx context.Context, hashedEmail string) ([]byte, error) {
+    query := fmt.Sprintf(`{
+        passkey(func: eq(userHash, "%s")) @filter(eq(dgraph.type, "PasskeyCredential") AND eq(isRevoked, false)) {
+            encryptedData
+        }
+    }`, hashedEmail)
+
+    txn, err := dgraph.NewTransaction(s.conn)
+    if err != nil {
+        console.Error("Failed to create transaction: " + err.Error())
+        return nil, fmt.Errorf("failed to create transaction: %v", err)
+    }
+    defer txn.Close()
+
+    resp, err := txn.Query(ctx, query)
+    if err != nil {
+        console.Error("Failed to query passkey: " + err.Error())
+        return nil, fmt.Errorf("failed to query passkey: %v", err)
+    }
+
+    var result struct {
+        Passkey []struct {
+            EncryptedData string `json:"encryptedData"`
+        } `json:"passkey"`
+    }
+
+    if err := json.Unmarshal([]byte(resp), &result); err != nil {
+        return nil, fmt.Errorf("failed to unmarshal response: %v", err)
+    }
+
+    if len(result.Passkey) == 0 {
+        return nil, fmt.Errorf("no passkey found for user")
+    }
+
+    return base64.StdEncoding.DecodeString(result.Passkey[0].EncryptedData)
 }

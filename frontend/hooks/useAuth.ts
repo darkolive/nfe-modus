@@ -1,3 +1,5 @@
+'use client'
+
 import { useState } from 'react'
 import { AuthClient } from '@/components/auth/auth-client'
 import { AuthResponse } from '@/types/auth'
@@ -21,12 +23,14 @@ export function useAuth() {
     setState({ ...state, isLoading: true, error: null })
     try {
       const response = await authClient.startAuthentication(email)
-      setState({ ...state, session: response })
-    } catch (err) {
-      setState({ ...state, error: 'Failed to start authentication' })
-      throw err
-    } finally {
-      setState((s) => ({ ...s, isLoading: false }))
+      setState({ ...state, isLoading: false, session: response })
+    } catch (error) {
+      setState({ 
+        ...state, 
+        isLoading: false, 
+        error: error instanceof Error ? error.message : 'Failed to login'
+      })
+      throw error
     }
   }
 
@@ -34,12 +38,14 @@ export function useAuth() {
     setState({ ...state, isLoading: true, error: null })
     try {
       const response = await authClient.startRegistration(email)
-      setState({ ...state, session: response })
-    } catch (err) {
-      setState({ ...state, error: 'Failed to start registration' })
-      throw err
-    } finally {
-      setState((s) => ({ ...s, isLoading: false }))
+      setState({ ...state, isLoading: false, session: response })
+    } catch (error) {
+      setState({ 
+        ...state, 
+        isLoading: false, 
+        error: error instanceof Error ? error.message : 'Failed to register'
+      })
+      throw error
     }
   }
 
@@ -47,19 +53,23 @@ export function useAuth() {
     setState({ ...state, isLoading: true, error: null })
     try {
       const response = await authClient.verifyCode(code)
-      setState({ ...state, session: response })
-    } catch (err) {
-      setState({ ...state, error: 'Failed to verify code' })
-      throw err
-    } finally {
-      setState((s) => ({ ...s, isLoading: false }))
+      setState({ ...state, isLoading: false, session: response })
+    } catch (error) {
+      setState({ 
+        ...state, 
+        isLoading: false, 
+        error: error instanceof Error ? error.message : 'Failed to verify code'
+      })
+      throw error
     }
   }
 
   return {
-    ...state,
     login,
     register,
     verifyCode,
+    isLoading: state.isLoading,
+    error: state.error,
+    session: state.session,
   }
 }

@@ -11,13 +11,18 @@ func InitRoutes(mux *http.ServeMux, conn string) {
     // Register auth routes
     h := NewHandler(conn)
 
-    // Registration endpoints
-    mux.HandleFunc("/auth/register/start", h.HandleRegistrationStart)
-    mux.HandleFunc("/auth/register/complete", h.HandleRegistrationComplete)
+    // OTP endpoints
+    mux.HandleFunc("/api/auth/otp/start", h.HandleOTPStart)
+    mux.HandleFunc("/api/auth/otp/register", h.HandleOTPRegistration)
+    mux.HandleFunc("/api/auth/otp/verify", h.HandleOTPVerification)
 
-    // Authentication endpoints
-    mux.HandleFunc("/auth/login/start", h.HandleAuthenticationStart)
-    mux.HandleFunc("/auth/login/complete", h.HandleAuthenticationComplete)
+    // WebAuthn registration endpoints
+    mux.HandleFunc("/api/auth/webauthn/register/start", h.HandleRegistrationStart)
+    mux.HandleFunc("/api/auth/webauthn/register/finish", h.HandleRegistrationComplete)
+
+    // WebAuthn authentication endpoints
+    mux.HandleFunc("/api/auth/webauthn/authenticate/start", h.HandleAuthenticationStart)
+    mux.HandleFunc("/api/auth/webauthn/authenticate/finish", h.HandleAuthenticationComplete)
 
     console.Debug("Auth routes initialized")
 }

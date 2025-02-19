@@ -1,1 +1,7 @@
-{}
+{
+  "/_app": "pages/_app.js",
+  "/_error": "pages/_error.js",
+  "/_document": "pages/_document.js",
+  "/api/auth/register-passkey": "pages/api/auth/register-passkey.js",
+  "/test-webauthn": "pages/test-webauthn.js"
+}

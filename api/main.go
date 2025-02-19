@@ -15,9 +15,8 @@ var (
 )
 
 func main() {
-	if err := StartServer(); err != nil {
-		console.Error("Failed to start server: " + err.Error())
-	}
+	console.Info("Initializing WebAssembly module")
+	// WebAssembly initialization code here
 }
 
 // @modus:function
@@ -39,14 +38,18 @@ func GetUserTimestamps(req *user.GetUserTimestampsInput) (*user.UserTimestamps, 
 	return user.GetUserTimestamps(connection, req)
 }
 
-// @modus:function
+// @modus:mutation
 func RegisterWebAuthn(req *auth.WebAuthnRegistrationRequest) (*auth.WebAuthnRegistrationResponse, error) {
-	return auth.RegisterWebAuthn(req)
+	console.Debug("Processing WebAuthn registration")
+	webAuthnService := auth.NewWebAuthnService(connection)
+	return webAuthnService.RegisterWebAuthn(req)
 }
 
 // @modus:function
 func VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) (*auth.WebAuthnVerificationResponse, error) {
-	return auth.VerifyWebAuthn(req)
+	console.Debug("Processing WebAuthn verification")
+	webAuthnService := auth.NewWebAuthnService(connection)
+	return webAuthnService.VerifyWebAuthn(req)
 }
 
 func getUserTimestamps(email string) (*dgraph.Query, error) {

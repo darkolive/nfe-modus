@@ -1,34 +1,88 @@
-type User {
-    hashedEmail: string @index(exact) .
-    deviceCredentials: [DeviceCredential] @reverse .
-    status: string @index(exact) .
-    dateJoined: datetime .
-    lastAuthTime: datetime .
+<authenticationSession.createdAt>: datetime .
+<authenticationSession.deviceID>: string .
+<authenticationSession.expiresAt>: datetime .
+<authenticationSession.id>: string @index(hash) @upsert .
+<authenticationSession.token>: string @index(hash) .
+<authenticationSession.userDID>: string .
+<credentialID>: string .
+<dateJoined>: datetime @index(day) .
+<device.createdAt>: datetime .
+<device.credentialID>: string .
+<device.id>: string @index(hash) @upsert .
+<device.lastUsed>: datetime .
+<device.publicKey>: string .
+<device.userDID>: string .
+<devices>: [uid] @reverse .
+<dgraph.drop.op>: string .
+<dgraph.graphql.p_query>: string @index(sha256) .
+<dgraph.graphql.schema>: string .
+<dgraph.graphql.xid>: string @index(exact) @upsert .
+<did>: string @index(exact) @upsert .
+<email>: string @index(exact) .
+<failedAttempts>: int .
+<hasDevice>: [uid] @reverse .
+<hasRole>: [uid] @reverse .
+<hasSession>: [uid] @reverse .
+<iD>: string @index(exact) .
+<lastAuthTime>: datetime @index(hour) .
+<lastOTPRequestTime>: datetime @index(hour) .
+<name>: string .
+<otp>: string .
+<otpCreatedAt>: datetime @index(hour) .
+<passwordHash>: string .
+<publicKey>: string .
+<recoveryHash>: string .
+<status>: string @index(exact) .
+<verified>: bool @index(bool) .
+<verifyOTP.message>: string .
+<verifyOTP.success>: bool .
+<verifyOTP.token>: string .
+<verifyOTP.user>: uid .
+type <AuthenticationSession> {
+	authenticationSession.id
+	authenticationSession.userDID
+	authenticationSession.token
+	authenticationSession.createdAt
+	authenticationSession.expiresAt
+	authenticationSession.deviceID
 }
-
-type DeviceCredential {
-    did: string @index(exact) .
-    userHash: string @index(exact) .
-    deviceId: string @index(exact) .
-    publicKey: string .
-    lastSyncTime: datetime .
-    isVerified: bool @index(exact) .
-    isRevoked: bool @index(exact) .
+type <Device> {
+	device.id
+	device.userDID
+	device.credentialID
+	device.publicKey
+	device.lastUsed
+	device.createdAt
 }
-
-type AuthAttempt {
-    userHash: string @index(exact) .
-    deviceId: string @index(exact) .
-    timestamp: datetime .
-    status: string @index(exact) .
-    ipAddress: string @index(exact) .
-    failedAttempts: int .
+type <User> {
+	iD
+	email
+	did
+	name
+	otp
+	otpCreatedAt
+	lastOTPRequestTime
+	failedAttempts
+	status
+	dateJoined
+	lastAuthTime
+	verified
+	passwordHash
+	recoveryHash
+	credentialID
+	publicKey
+	devices
 }
-
-type AuditLog {
-    userHash: string @index(exact) .
-    eventType: string @index(exact) .
-    timestamp: datetime .
-    details: string .
-    metadata: string .
+type <VerifyOTPResponse> {
+	verifyOTP.success
+	verifyOTP.message
+	verifyOTP.token
+	verifyOTP.user
+}
+type <dgraph.graphql> {
+	dgraph.graphql.schema
+	dgraph.graphql.xid
+}
+type <dgraph.graphql.persisted_query> {
+	dgraph.graphql.p_query
 }

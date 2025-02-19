@@ -53,11 +53,3 @@ func __modus_VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) *auth.WebAuth
 	return r0
 }
 
-//go:export startServer
-func __modus_StartServer() {
-	err := StartServer()
-	if err != nil {
-		console.Error(err.Error())
-	}
-}
-

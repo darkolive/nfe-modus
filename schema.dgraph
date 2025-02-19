@@ -24,21 +24,12 @@
 <hasRole>: [uid] @reverse .
 <hasSession>: [uid] @reverse .
 <iD>: string @index(exact) .
-<identityCredential.createdAt>: datetime .
-<identityCredential.did>: string @index(exact) @upsert .
-<identityCredential.encryptedData>: string .
-<identityCredential.id>: string @index(hash) @upsert .
-<identityCredential.userRef>: uid .
 <lastAuthTime>: datetime @index(hour) .
 <lastOTPRequestTime>: datetime @index(hour) .
 <name>: string .
 <otp>: string .
 <otpCreatedAt>: datetime @index(hour) .
 <passwordHash>: string .
-<passkeyCredential.createdAt>: datetime .
-<passkeyCredential.encryptedData>: string .
-<passkeyCredential.isRevoked>: bool @index(bool) .
-<passkeyCredential.userHash>: string @index(exact) .
 <publicKey>: string .
 <recoveryHash>: string .
 <status>: string @index(exact) .
@@ -62,19 +53,6 @@ type <Device> {
 	device.publicKey
 	device.lastUsed
 	device.createdAt
-}
-type <IdentityCredential> {
-    identityCredential.id
-    identityCredential.userRef
-    identityCredential.did
-    identityCredential.encryptedData
-    identityCredential.createdAt
-}
-type <PasskeyCredential> {
-    passkeyCredential.userHash
-    passkeyCredential.encryptedData
-    passkeyCredential.createdAt
-    passkeyCredential.isRevoked
 }
 type <User> {
 	iD

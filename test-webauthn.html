@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebAuthn Test</title>
+</head>
+<body>
+    <h2>WebAuthn Registration Test</h2>
+    <div>
+        <label for="email">Email:</label>
+        <input type="email" id="email" value="info@darkolive.co.uk">
+        <button onclick="register()">Register WebAuthn</button>
+    </div>
+    <pre id="result"></pre>
+
+    <script>
+        // Helper function to convert ArrayBuffer to Base64
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        // Helper function to convert Uint8Array to base64
+        function uint8ArrayToBase64(uint8Array) {
+            return btoa(String.fromCharCode.apply(null, uint8Array));
+        }
+
+        async function register() {
+            const email = document.getElementById('email').value;
+            const deviceId = 'test-device-1';
+            
+            try {
+                // Generate random challenge
+                const challenge = new Uint8Array(32);
+                window.crypto.getRandomValues(challenge);
+                
+                // Create credentials
+                const credential = await navigator.credentials.create({
+                    publicKey: {
+                        challenge: challenge,
+                        rp: {
+                            name: "NFE Modus Test",
+                            id: window.location.hostname
+                        },
+                        user: {
+                            id: new TextEncoder().encode(email),
+                            name: email,
+                            displayName: email
+                        },
+                        pubKeyCredParams: [{
+                            type: "public-key",
+                            alg: -7 // ES256
+                        }],
+                        timeout: 60000,
+                        attestation: "direct"
+                    }
+                });
+
+                // Extract the public key from attestation
+                const attestationObject = new Uint8Array(credential.response.attestationObject);
+                const authData = attestationObject.slice(37); // Skip CBOR encoding
+                const publicKey = authData.slice(55, 87); // Extract public key bytes
+
+                // Format credential data to match PasskeyCredential structure
+                const credentialData = {
+                    id: uint8ArrayToBase64(new Uint8Array(credential.rawId)),
+                    publicKey: uint8ArrayToBase64(publicKey),
+                    signCount: 0,
+                    userHandle: uint8ArrayToBase64(new TextEncoder().encode(email)),
+                    transportsRaw: credential.response.getTransports ? credential.response.getTransports() : []
+                };
+
+                console.log('Sending credential data:', credentialData);
+
+                // Base64 encode the entire credential data for transport
+                const credentialDataStr = btoa(JSON.stringify(credentialData));
+
+                // Call the GraphQL endpoint
+                const response = await fetch('http://localhost:8686/graphql', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: `query RegisterWebAuthn($req: WebAuthnRegistrationRequestInput!) {
+                            registerWebAuthn(req: $req) {
+                                success
+                                message
+                                userDID
+                            }
+                        }`,
+                        variables: {
+                            req: {
+                                email: email,
+                                credentialData: credentialDataStr,
+                                deviceID: deviceId
+                            }
+                        }
+                    })
+                });
+
+                const result = await response.json();
+                document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

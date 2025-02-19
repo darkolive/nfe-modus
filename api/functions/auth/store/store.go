@@ -1,274 +1,322 @@
 package store
 
 import (
-    "context"
-    "encoding/base64"
-    "encoding/json"
-    "fmt"
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
 
-    "github.com/hypermodeinc/modus/sdk/go/pkg/console"
-    "github.com/hypermodeinc/modus/sdk/go/pkg/localtime"
-    "nfe-modus/api/functions/auth/dgraph"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/localtime"
 )
 
+// Store handles database operations
 type Store struct {
-    conn string
+	conn string
 }
 
+// PasskeyCredential represents a WebAuthn credential
+type PasskeyCredential struct {
+	ID            string   `json:"id"`
+	PublicKey     string   `json:"publicKey"`
+	SignCount     uint32   `json:"signCount"`
+	UserHandle    string   `json:"userHandle"`
+	TransportsRaw []string `json:"transportsRaw,omitempty"`
+}
+
+// New creates a new store instance
 func New(conn string) *Store {
-    return &Store{conn: conn}
+	return &Store{conn: conn}
 }
 
 // CreateUser creates a new user with device credentials
 func (s *Store) CreateUser(ctx context.Context, hashedEmail, deviceId, publicKey string) error {
-    t, err := localtime.Now()
-    if err != nil {
-        return fmt.Errorf("failed to get current time: %v", err)
-    }
+	t, err := localtime.Now()
+	if err != nil {
+		return fmt.Errorf("failed to get current time: %v", err)
+	}
 
-    mutation := map[string]interface{}{
-        "set": []map[string]interface{}{
-            {
-                "dgraph.type": "User",
-                "hashedEmail": hashedEmail,
-                "status": "active",
-                "dateJoined": t.Format("2006-01-02T15:04:05Z"),
-                "lastAuthTime": t.Format("2006-01-02T15:04:05Z"),
-                "deviceCredentials": []map[string]interface{}{
-                    {
-                        "dgraph.type": "DeviceCredential",
-                        "did": fmt.Sprintf("did:nfe:%s", deviceId),
-                        "userHash": hashedEmail,
-                        "deviceId": deviceId,
-                        "publicKey": publicKey,
-                        "lastSyncTime": t.Format("2006-01-02T15:04:05Z"),
-                        "isVerified": false,
-                        "isRevoked": false,
-                    },
-                },
-            },
-        },
-    }
+	// Create user record
+	mutation := fmt.Sprintf(`
+		{
+			set {
+				_:user <dgraph.type> "User" .
+				_:user <iD> "%s" .
+				_:user <status> "active" .
+				_:user <dateJoined> "%s" .
+				_:user <lastAuthTime> "%s" .
+			}
+		}
+	`, hashedEmail, t.Format(time.RFC3339), t.Format(time.RFC3339))
 
-    mutationJSON, err := json.Marshal(mutation)
-    if err != nil {
-        return fmt.Errorf("failed to marshal mutation: %v", err)
-    }
+	query := &dgraph.Query{
+		Query: mutation,
+	}
 
-    txn, err := dgraph.NewTransaction(s.conn)
-    if err != nil {
-        console.Error("Failed to create transaction: " + err.Error())
-        return fmt.Errorf("failed to create transaction: %v", err)
-    }
-    defer txn.Close()
+	_, err = dgraph.ExecuteQuery(s.conn, query)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %v", err)
+	}
 
-    if err := txn.Mutate(ctx, string(mutationJSON)); err != nil {
-        console.Error("Failed to create user: " + err.Error())
-        return fmt.Errorf("failed to create user: %v", err)
-    }
+	// Create device record
+	mutation = fmt.Sprintf(`
+		mutation {
+		  set {
+			_:device <dgraph.type> "DeviceCredential" .
+			_:device <did> "%s" .
+			_:device <userHash> "%s" .
+			_:device <deviceId> "%s" .
+			_:device <publicKey> "%s" .
+			_:device <lastSyncTime> "%s" .
+			_:device <isVerified> "%t" .
+			_:device <isRevoked> "%t" .
+		  }
+		}
+	`, fmt.Sprintf("did:nfe:%s", hashedEmail), hashedEmail, deviceId, publicKey, t.Format(time.RFC3339), false, false)
 
-    return nil
+	deviceQuery := &dgraph.Query{
+		Query: mutation,
+	}
+
+	_, err = dgraph.ExecuteQuery(s.conn, deviceQuery)
+	if err != nil {
+		return fmt.Errorf("failed to create device: %v", err)
+	}
+
+	return nil
 }
 
 // GetUserDevices retrieves all devices for a user
 func (s *Store) GetUserDevices(ctx context.Context, hashedEmail string) ([]map[string]interface{}, error) {
-    query := fmt.Sprintf(`{
-        devices(func: eq(hashedEmail, "%s")) {
-            deviceCredentials {
-                did
-                deviceId
-                publicKey
-                lastSyncTime
-                isVerified
-                isRevoked
-            }
-        }
-    }`, hashedEmail)
+	query := &dgraph.Query{
+		Query: `query getDevices($userDID: string) {
+			device(func: eq(device.userDID, $userDID)) {
+				device.id
+				device.credentialID
+				device.publicKey
+				device.lastUsed
+				device.createdAt
+			}
+		}`,
+		Variables: map[string]string{
+			"$userDID": fmt.Sprintf("did:nfe:%s", hashedEmail),
+		},
+	}
 
-    txn, err := dgraph.NewTransaction(s.conn)
-    if err != nil {
-        console.Error("Failed to create transaction: " + err.Error())
-        return nil, fmt.Errorf("failed to create transaction: %v", err)
-    }
-    defer txn.Close()
+	resp, err := dgraph.ExecuteQuery(s.conn, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get devices: %v", err)
+	}
 
-    resp, err := txn.Query(ctx, query)
-    if err != nil {
-        console.Error("Failed to query devices: " + err.Error())
-        return nil, fmt.Errorf("failed to query devices: %v", err)
-    }
+	var result struct {
+		Device []map[string]interface{} `json:"device"`
+	}
 
-    var result struct {
-        Devices []struct {
-            DeviceCredentials []map[string]interface{} `json:"deviceCredentials"`
-        } `json:"devices"`
-    }
+	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
 
-    if err := json.Unmarshal(resp, &result); err != nil {
-        return nil, fmt.Errorf("failed to parse response: %v", err)
-    }
-
-    if len(result.Devices) == 0 {
-        return nil, nil
-    }
-
-    return result.Devices[0].DeviceCredentials, nil
+	return result.Device, nil
 }
 
 // LogAuthAttempt records an authentication attempt
 func (s *Store) LogAuthAttempt(ctx context.Context, hashedEmail, deviceId, status, ipAddress string) error {
-    t, err := localtime.Now()
-    if err != nil {
-        return fmt.Errorf("failed to get current time: %v", err)
-    }
+	t, err := localtime.Now()
+	if err != nil {
+		return fmt.Errorf("failed to get current time: %v", err)
+	}
 
-    mutation := map[string]interface{}{
-        "set": []map[string]interface{}{
-            {
-                "dgraph.type": "AuthAttempt",
-                "userHash": hashedEmail,
-                "deviceId": deviceId,
-                "timestamp": t.Format("2006-01-02T15:04:05Z"),
-                "status": status,
-                "ipAddress": ipAddress,
-                "failedAttempts": 0,
-            },
-        },
-    }
+	// Create auth attempt record
+	mutation := fmt.Sprintf(`
+		{
+			set {
+				_:auth <dgraph.type> "AuthenticationSession" .
+				_:auth <authenticationSession.id> "%s-%s-%d" .
+				_:auth <authenticationSession.userDID> "%s" .
+				_:auth <authenticationSession.deviceID> "%s" .
+				_:auth <authenticationSession.createdAt> "%s" .
+				_:auth <authenticationSession.expiresAt> "%s" .
+			}
+		}
+	`, hashedEmail, deviceId, t.Unix(), fmt.Sprintf("did:nfe:%s", hashedEmail), deviceId, t.Format(time.RFC3339), t.Add(24*time.Hour).Format(time.RFC3339))
 
-    mutationJSON, err := json.Marshal(mutation)
-    if err != nil {
-        return fmt.Errorf("failed to marshal mutation: %v", err)
-    }
+	query := &dgraph.Query{
+		Query: mutation,
+	}
 
-    txn, err := dgraph.NewTransaction(s.conn)
-    if err != nil {
-        console.Error("Failed to create transaction: " + err.Error())
-        return fmt.Errorf("failed to create transaction: %v", err)
-    }
-    defer txn.Close()
+	_, err = dgraph.ExecuteQuery(s.conn, query)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to log auth attempt: %v", err))
+		return fmt.Errorf("failed to log auth attempt: %v", err)
+	}
 
-    if err := txn.Mutate(ctx, string(mutationJSON)); err != nil {
-        console.Error("Failed to log auth attempt: " + err.Error())
-        return fmt.Errorf("failed to log auth attempt: %v", err)
-    }
-
-    return nil
+	return nil
 }
 
 // LogAudit records an audit event
 func (s *Store) LogAudit(ctx context.Context, hashedEmail, eventType, details string, metadata map[string]interface{}) error {
-    t, err := localtime.Now()
-    if err != nil {
-        return fmt.Errorf("failed to get current time: %v", err)
-    }
+	t, err := localtime.Now()
+	if err != nil {
+		return fmt.Errorf("failed to get current time: %v", err)
+	}
 
-    mutation := map[string]interface{}{
-        "set": []map[string]interface{}{
-            {
-                "dgraph.type": "AuditLog",
-                "userHash": hashedEmail,
-                "eventType": eventType,
-                "timestamp": t.Format("2006-01-02T15:04:05Z"),
-                "details": details,
-                "metadata": metadata,
-            },
-        },
-    }
+	// Convert metadata to string map
+	metadataStr := make(map[string]string)
+	for k, v := range metadata {
+		if str, ok := v.(string); ok {
+			metadataStr[k] = str
+		} else {
+			bytes, err := json.Marshal(v)
+			if err != nil {
+				return fmt.Errorf("failed to marshal metadata value: %v", err)
+			}
+			metadataStr[k] = string(bytes)
+		}
+	}
 
-    mutationJSON, err := json.Marshal(mutation)
-    if err != nil {
-        return fmt.Errorf("failed to marshal mutation: %v", err)
-    }
+	// Update user record
+	mutation := fmt.Sprintf(`
+		{
+			set {
+				uid(did:nfe:%s) <lastAuthTime> "%s" .
+				uid(did:nfe:%s) <status> "%s" .
+			}
+		}
+	`, hashedEmail, t.Format(time.RFC3339), hashedEmail, eventType)
 
-    txn, err := dgraph.NewTransaction(s.conn)
-    if err != nil {
-        console.Error("Failed to create transaction: " + err.Error())
-        return fmt.Errorf("failed to create transaction: %v", err)
-    }
-    defer txn.Close()
+	query := &dgraph.Query{
+		Query: mutation,
+	}
 
-    if err := txn.Mutate(ctx, string(mutationJSON)); err != nil {
-        console.Error("Failed to log audit event: " + err.Error())
-        return fmt.Errorf("failed to log audit event: %v", err)
-    }
+	_, err = dgraph.ExecuteQuery(s.conn, query)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to log audit: %v", err))
+		return fmt.Errorf("failed to log audit: %v", err)
+	}
 
-    return nil
+	return nil
 }
 
-// SavePasskey stores an encrypted passkey for a user
-func (s *Store) SavePasskey(ctx context.Context, hashedEmail string, encryptedCredential []byte) error {
-    t, err := localtime.Now()
-    if err != nil {
-        return fmt.Errorf("failed to get current time: %v", err)
-    }
+// SavePasskey saves a passkey credential for a user
+func (s *Store) SavePasskey(userHash string, cred *PasskeyCredential) error {
+	t := time.Now().UTC()
 
-    mutation := map[string]interface{}{
-        "set": []map[string]interface{}{
-            {
-                "dgraph.type": "PasskeyCredential",
-                "userHash": hashedEmail,
-                "encryptedData": base64.StdEncoding.EncodeToString(encryptedCredential),
-                "createdAt": t.Format("2006-01-02T15:04:05Z"),
-                "isRevoked": false,
-            },
-        },
-    }
+	// First query to check if device already exists
+	query := fmt.Sprintf(`
+		query {
+			device(func: eq(device.id, "%s")) {
+				uid
+			}
+		}
+	`, cred.ID)
 
-    mutationJSON, err := json.Marshal(mutation)
-    if err != nil {
-        return fmt.Errorf("failed to marshal mutation: %v", err)
-    }
+	console.Debug(fmt.Sprintf("Executing query: %s", query))
+	resp, err := dgraph.ExecuteQuery(s.conn, &dgraph.Query{Query: query})
+	if err != nil {
+		console.Error(fmt.Sprintf("Query error: %v", err))
+		return fmt.Errorf("failed to query device: %v", err)
+	}
+	console.Debug(fmt.Sprintf("Query response: %s", resp.Json))
 
-    txn, err := dgraph.NewTransaction(s.conn)
-    if err != nil {
-        console.Error("Failed to create transaction: " + err.Error())
-        return fmt.Errorf("failed to create transaction: %v", err)
-    }
-    defer txn.Close()
+	var result struct {
+		Device []struct {
+			UID string `json:"uid"`
+		} `json:"device"`
+	}
+	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
+		console.Error(fmt.Sprintf("Unmarshal error: %v", err))
+		return fmt.Errorf("failed to unmarshal response: %v", err)
+	}
 
-    if err := txn.Mutate(ctx, string(mutationJSON)); err != nil {
-        console.Error("Failed to save passkey: " + err.Error())
-        return fmt.Errorf("failed to save passkey: %v", err)
-    }
+	var mutation string
+	if len(result.Device) > 0 {
+		// Update existing device
+		mutation = fmt.Sprintf(`
+			{
+				set {
+					<%s> <device.publicKey> "%s" .
+					<%s> <device.lastUsed> "%s" .
+				}
+			}
+		`, result.Device[0].UID, cred.PublicKey, result.Device[0].UID, t.Format(time.RFC3339))
+	} else {
+		// Create new device
+		mutation = fmt.Sprintf(`
+			{
+				set {
+					_:device <dgraph.type> "Device" .
+					_:device <device.id> "%s" .
+					_:device <device.userDID> "%s" .
+					_:device <device.credentialID> "%s" .
+					_:device <device.publicKey> "%s" .
+					_:device <device.lastUsed> "%s" .
+					_:device <device.createdAt> "%s" .
+				}
+			}
+		`, cred.ID, fmt.Sprintf("did:nfe:%s", userHash), cred.ID, cred.PublicKey, t.Format(time.RFC3339), t.Format(time.RFC3339))
+	}
 
-    return nil
+	console.Debug(fmt.Sprintf("Executing mutation: %s", mutation))
+
+	mutResp, err := dgraph.ExecuteQuery(s.conn, &dgraph.Query{
+		Query: mutation,
+	})
+	if err != nil {
+		console.Error(fmt.Sprintf("Mutation error: %v", err))
+		if mutResp != nil {
+			console.Error(fmt.Sprintf("Mutation response: %s", mutResp.Json))
+		}
+		return fmt.Errorf("failed to save passkey: %v", err)
+	}
+
+	console.Debug(fmt.Sprintf("Mutation response: %s", mutResp.Json))
+	return nil
 }
 
-// GetPasskey retrieves the encrypted passkey for a user
-func (s *Store) GetPasskey(ctx context.Context, hashedEmail string) ([]byte, error) {
-    query := fmt.Sprintf(`{
-        passkey(func: eq(userHash, "%s")) @filter(eq(dgraph.type, "PasskeyCredential") AND eq(isRevoked, false)) {
-            encryptedData
-        }
-    }`, hashedEmail)
+// GetPasskey retrieves a passkey credential from the database
+func (s *Store) GetPasskey(ctx context.Context, userHash string) ([]byte, error) {
+	query := &dgraph.Query{
+		Query: fmt.Sprintf(`
+			{
+				device(func: eq(userHash, "%s")) {
+					deviceId
+					publicKey
+					lastSyncTime
+				}
+			}
+		`, userHash),
+	}
 
-    txn, err := dgraph.NewTransaction(s.conn)
-    if err != nil {
-        console.Error("Failed to create transaction: " + err.Error())
-        return nil, fmt.Errorf("failed to create transaction: %v", err)
-    }
-    defer txn.Close()
+	resp, err := dgraph.ExecuteQuery(s.conn, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get passkey: %v", err)
+	}
 
-    resp, err := txn.Query(ctx, query)
-    if err != nil {
-        console.Error("Failed to query passkey: " + err.Error())
-        return nil, fmt.Errorf("failed to query passkey: %v", err)
-    }
+	var result struct {
+		Device []struct {
+			DeviceID     string `json:"deviceId"`
+			PublicKey    string `json:"publicKey"`
+			LastSyncTime string `json:"lastSyncTime"`
+		} `json:"device"`
+	}
 
-    var result struct {
-        Passkey []struct {
-            EncryptedData string `json:"encryptedData"`
-        } `json:"passkey"`
-    }
+	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
 
-    if err := json.Unmarshal([]byte(resp), &result); err != nil {
-        return nil, fmt.Errorf("failed to unmarshal response: %v", err)
-    }
+	if len(result.Device) == 0 {
+		return nil, fmt.Errorf("no device found for user")
+	}
 
-    if len(result.Passkey) == 0 {
-        return nil, fmt.Errorf("no passkey found for user")
-    }
+	device := result.Device[0]
+	cred := map[string]interface{}{
+		"id":            device.DeviceID,
+		"publicKey":     device.PublicKey,
+		"signCount":     uint32(0), // We don't store this yet
+		"userHandle":    userHash,
+		"transportsRaw": []string{},
+	}
 
-    return base64.StdEncoding.DecodeString(result.Passkey[0].EncryptedData)
+	return json.Marshal(cred)
 }

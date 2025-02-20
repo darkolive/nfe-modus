@@ -53,3 +53,12 @@ func __modus_VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) *auth.WebAuth
 	return r0
 }
 
+//go:export startWebAuthnAuthentication
+func __modus_StartWebAuthnAuthentication(req *auth.StartAuthenticationRequest) *auth.StartAuthenticationResponse {
+	r0, err := StartWebAuthnAuthentication(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+

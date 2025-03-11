@@ -3,7 +3,15 @@
 import * as React from "react";
 import { AppBar, Switch } from "@skeletonlabs/skeleton-react";
 import { Logo } from "@/components/logo";
-import { Moon, Sun, Mic, SlidersVertical, Menu, LogIn } from "lucide-react";
+import {
+  Moon,
+  Sun,
+  Mic,
+  SlidersVertical,
+  Menu,
+  LogIn,
+  Search,
+} from "lucide-react";
 
 export function Header() {
   const [mounted, setMounted] = React.useState(false);
@@ -37,24 +45,30 @@ export function Header() {
             <span className="text-3xl font-semibold">NFE</span>
           </div>
         </AppBar.ToolbarLead>
-        <AppBar.ToolbarCenter>
-          <div className="rounded-full"></div>
-        </AppBar.ToolbarCenter>
-        <AppBar.ToolbarTrail>
-          <div className="flex items-center gap-4">
-            <Switch
-              name="darkmode"
-              controlActive="bg-surface-700"
-              checked={isDark}
-              onCheckedChange={(e) => handleDarkMode(e.checked)}
-              inactiveChild={<Sun size="14" />}
-              activeChild={<Moon size="14" />}
+        <AppBar.ToolbarCenter base="flex items-center w-1/2">
+          <div className="relative w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-surface-500 dark:text-surface-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search..."
+              className="w-full h-13 pl-9 pr-4 bg-surface-100/50 hover:bg-surface-200/50 dark:bg-surface-800/50 dark:hover:bg-surface-700/50 border border-surface-300 dark:border-surface-600 rounded-full focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:border-ring focus-visible:bg-surface-50 dark:focus-visible:bg-surface-900 transition-colors"
+              aria-label="Search NFE"
             />
-            <Mic size={20} />
-            <SlidersVertical size={20} />
-            <Menu size={20} />
-            <LogIn size={20} />
           </div>
+        </AppBar.ToolbarCenter>
+        <AppBar.ToolbarTrail base="flex items-center gap-6">
+          <Switch
+            name="darkmode"
+            controlActive="bg-surface-700"
+            checked={isDark}
+            onCheckedChange={(e) => handleDarkMode(e.checked)}
+            inactiveChild={<Sun size="14" />}
+            activeChild={<Moon size="14" />}
+          />
+          <Mic size={20} />
+          <SlidersVertical size={20} />
+          <Menu size={20} />
+          <LogIn size={32} />
         </AppBar.ToolbarTrail>
       </AppBar.Toolbar>
     </AppBar>

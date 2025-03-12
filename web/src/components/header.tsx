@@ -3,13 +3,13 @@
 import * as React from "react";
 import { AppBar, Switch } from "@skeletonlabs/skeleton-react";
 import { Logo } from "@/components/logo";
+import { SignIn } from "@/components/auth/signin";
 import {
   Moon,
   Sun,
   Mic,
   SlidersVertical,
   Menu,
-  LogIn,
   Search,
 } from "lucide-react";
 
@@ -68,7 +68,7 @@ export function Header() {
           <Mic size={20} />
           <SlidersVertical size={20} />
           <Menu size={20} />
-          <LogIn size={32} />
+          <SignIn />
         </AppBar.ToolbarTrail>
       </AppBar.Toolbar>
     </AppBar>

@@ -1,88 +1,186 @@
-<authenticationSession.createdAt>: datetime .
-<authenticationSession.deviceID>: string .
-<authenticationSession.expiresAt>: datetime .
-<authenticationSession.id>: string @index(hash) @upsert .
-<authenticationSession.token>: string @index(hash) .
-<authenticationSession.userDID>: string .
-<credentialID>: string .
-<dateJoined>: datetime @index(day) .
-<device.createdAt>: datetime .
-<device.credentialID>: string .
-<device.id>: string @index(hash) @upsert .
-<device.lastUsed>: datetime .
-<device.publicKey>: string .
-<device.userDID>: string .
-<devices>: [uid] @reverse .
-<dgraph.drop.op>: string .
-<dgraph.graphql.p_query>: string @index(sha256) .
-<dgraph.graphql.schema>: string .
-<dgraph.graphql.xid>: string @index(exact) @upsert .
-<did>: string @index(exact) @upsert .
-<email>: string @index(exact) .
-<failedAttempts>: int .
-<hasDevice>: [uid] @reverse .
-<hasRole>: [uid] @reverse .
-<hasSession>: [uid] @reverse .
-<iD>: string @index(exact) .
-<lastAuthTime>: datetime @index(hour) .
-<lastOTPRequestTime>: datetime @index(hour) .
-<name>: string .
-<otp>: string .
-<otpCreatedAt>: datetime @index(hour) .
-<passwordHash>: string .
-<publicKey>: string .
-<recoveryHash>: string .
-<status>: string @index(exact) .
-<verified>: bool @index(bool) .
-<verifyOTP.message>: string .
-<verifyOTP.success>: bool .
-<verifyOTP.token>: string .
-<verifyOTP.user>: uid .
-type <AuthenticationSession> {
-	authenticationSession.id
-	authenticationSession.userDID
-	authenticationSession.token
-	authenticationSession.createdAt
-	authenticationSession.expiresAt
-	authenticationSession.deviceID
+# Predicates (fields)
+id: string @index(hash) .
+email: string @index(exact) @upsert .
+name: string .
+did: string @index(exact) @upsert .
+passwordHash: string .
+passwordSalt: string .
+recoveryHash: string .
+emailVerified: datetime .
+status: string @index(exact) .
+verified: bool @index(bool) .
+dateJoined: datetime @index(day) .
+lastAuthTime: datetime @index(hour) .
+marketingEmails: bool .
+notificationEmails: bool .
+credentialID: string @index(hash) .
+publicKey: string .
+counter: int .
+transports: [string] .
+lastChallenge: string .
+lastUsed: datetime .
+createdAt: datetime .
+isBiometric: bool .
+sessionToken: string @index(hash) @upsert .
+expires: datetime .
+userId: string @index(hash) .
+type: string @index(hash) .
+provider: string @index(hash) .
+providerAccountId: string @index(hash) .
+refresh_token: string .
+access_token: string .
+expires_at: int .
+token_type: string .
+scope: string .
+id_token: string .
+session_state: string .
+identifier: string @index(hash) .
+token: string @index(hash) @upsert .
+challenge: string @index(hash) .
+expiresAt: datetime .
+description: string .
+userDID: string @index(hash) .
+deviceID: string .
+message: string .
+success: bool .
+assertionData: string .  # Added missing predicate
+
+# Relationships
+devices: [uid] @reverse .
+user: uid @reverse .
+sessions: [uid] @reverse .
+accounts: [uid] @reverse .
+roles: [uid] @reverse .
+users: [uid] @reverse .
+permissions: [uid] @reverse .
+preferences: uid @reverse .
+
+# Type definitions
+type User {
+  id
+  email
+  name
+  did
+  passwordHash
+  passwordSalt
+  recoveryHash
+  emailVerified
+  status
+  verified
+  dateJoined
+  lastAuthTime
+  devices
+  sessions
+  accounts
+  roles
+  preferences
 }
-type <Device> {
-	device.id
-	device.userDID
-	device.credentialID
-	device.publicKey
-	device.lastUsed
-	device.createdAt
+
+type UserPreferences {
+  id
+  marketingEmails
+  notificationEmails
+  user
 }
-type <User> {
-	iD
-	email
-	did
-	name
-	otp
-	otpCreatedAt
-	lastOTPRequestTime
-	failedAttempts
-	status
-	dateJoined
-	lastAuthTime
-	verified
-	passwordHash
-	recoveryHash
-	credentialID
-	publicKey
-	devices
+
+type Device {
+  id
+  credentialID
+  publicKey
+  counter
+  transports
+  lastChallenge
+  lastUsed
+  createdAt
+  name
+  isBiometric
+  user
 }
-type <VerifyOTPResponse> {
-	verifyOTP.success
-	verifyOTP.message
-	verifyOTP.token
-	verifyOTP.user
+
+type Session {
+  id
+  sessionToken
+  userId
+  expires
+  user
 }
-type <dgraph.graphql> {
-	dgraph.graphql.schema
-	dgraph.graphql.xid
+
+type Account {
+  id
+  userId
+  type
+  provider
+  providerAccountId
+  refresh_token
+  access_token
+  expires_at
+  token_type
+  scope
+  id_token
+  session_state
+  user
 }
-type <dgraph.graphql.persisted_query> {
-	dgraph.graphql.p_query
+
+type VerificationToken {
+  id
+  identifier
+  token
+  expires
+}
+
+type Challenge {
+  id
+  challenge
+  email
+  userId
+  createdAt
+  expiresAt
+}
+
+type AuthenticationSession {
+  id
+  userDID
+  token
+  deviceID
+  createdAt
+  expiresAt
+  user
+}
+
+type Role {
+  id
+  name
+  description
+  permissions
+  users
+}
+
+type Permission {
+  id
+  name
+  description
+  roles
+}
+
+type StartAuthenticationRequest {
+  email
+}
+
+type StartAuthenticationResponse {
+  success
+  message
+  challenge
+}
+
+type VerifyPasskeyRequest {
+  email
+  deviceID
+  assertionData
+}
+
+type VerifyPasskeyResponse {
+  success
+  message
+  token
+  user
 }

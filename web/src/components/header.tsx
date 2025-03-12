@@ -3,15 +3,8 @@
 import * as React from "react";
 import { AppBar, Switch } from "@skeletonlabs/skeleton-react";
 import { Logo } from "@/components/logo";
-import { SignIn } from "@/components/auth/signin";
-import {
-  Moon,
-  Sun,
-  Mic,
-  SlidersVertical,
-  Menu,
-  Search,
-} from "lucide-react";
+import SignIn from "@/components/auth/signin";
+import { Moon, Sun, Mic, SlidersVertical, Menu, Search } from "lucide-react";
 
 export function Header() {
   const [mounted, setMounted] = React.useState(false);

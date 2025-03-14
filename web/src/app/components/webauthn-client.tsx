@@ -26,7 +26,7 @@ export async function registerWebAuthn(
 ): Promise<RegistrationResponseJSON> {
   try {
     // Start the registration process
-    const response = await startRegistration(options);
+    const response = await startRegistration({ optionsJSON: options });
     return response;
   } catch (error) {
     console.error("Error during WebAuthn registration:", error);
@@ -45,7 +45,7 @@ export async function authenticateWebAuthn(
 ): Promise<AuthenticationResponseJSON> {
   try {
     // Start the authentication process
-    const response = await startAuthentication(options);
+    const response = await startAuthentication({ optionsJSON: options });
     return response;
   } catch (error) {
     console.error("Error during WebAuthn authentication:", error);

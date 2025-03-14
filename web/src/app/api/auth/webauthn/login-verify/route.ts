@@ -1,126 +1,212 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { verifyAuthenticationResponse } from "@simplewebauthn/server";
-import { normalizeCredentialId } from "@/lib/encoding";
-import logger from "@/lib/logger";
-import { db } from "@/lib/db-operations";
-import type { AuthenticationResponseJSON } from "@simplewebauthn/types";
+import { NextResponse } from "next/server";
+import { verifyAuthentication } from "@/lib/webauthn";
+import { DgraphClient } from "@/lib/dgraph";
 import { cookies } from "next/headers";
+import { SignJWT } from "jose";
+import logger from "@/lib/logger";
+import { z } from "zod";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/types";
 
-export async function POST(req: NextRequest) {
+// DGraph client for user operations
+const dgraphClient = new DgraphClient();
+
+// Input validation schema - using a more specific approach to avoid type issues
+const requestSchema = z.object({
+  email: z.string().email("Invalid email format"),
+  response: z.object({
+    id: z.string(),
+    rawId: z.string(),
+    type: z.string(),
+    response: z.object({
+      clientDataJSON: z.string(),
+      authenticatorData: z.string(),
+      signature: z.string(),
+      userHandle: z.string().optional(),
+    }),
+    clientExtensionResults: z.record(z.unknown()).optional(),
+  }),
+});
+
+// Type assertion function to safely cast to AuthenticationResponseJSON
+function assertAuthenticationResponse(
+  data: unknown
+): asserts data is AuthenticationResponseJSON {
+  // Basic validation already done by zod schema
+  if (!data || typeof data !== "object") {
+    throw new Error("Invalid authentication response format");
+  }
+}
+
+export async function POST(request: Request) {
   try {
-    const { id, response } = await req.json();
+    // Get client IP for logging and security checks
+    const ip =
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
+    const userAgent = request.headers.get("user-agent") || "unknown";
 
-    if (!id || !response) {
+    // Parse and validate input
+    const body = await request.json();
+    const validationResult = requestSchema.safeParse(body);
+
+    if (!validationResult.success) {
+      logger.warn(
+        `Invalid WebAuthn login verification input: ${JSON.stringify(validationResult.error.errors)}`,
+        {
+          action: "WEBAUTHN_LOGIN_VERIFY_ERROR",
+          ip,
+          error: "Invalid input",
+        }
+      );
       return NextResponse.json(
-        { error: "Missing id or response" },
+        {
+          error: "Invalid input",
+          details: validationResult.error.errors,
+        },
         { status: 400 }
       );
     }
 
-    // Get user from database using your existing db client
-    const user = await db.user.findUnique({
-      where: {
-        id: id,
-      },
+    const { email, response } = validationResult.data;
+
+    logger.info(`Verifying WebAuthn login for email: ${email}`, {
+      action: "WEBAUTHN_LOGIN_VERIFY_REQUEST",
+      ip,
     });
 
+    // Type assertion for the response
+    assertAuthenticationResponse(response);
+
+    // Verify the authentication
+    const verification = await verifyAuthentication(email, response, ip);
+
+    if (!verification.verified) {
+      return NextResponse.json(
+        { error: verification.error || "Authentication failed" },
+        { status: 401 }
+      );
+    }
+
+    // Get the user
+    const user = await dgraphClient.getUserByEmail(email);
+
     if (!user) {
+      logger.warn(`User not found for email: ${email}`, {
+        action: "WEBAUTHN_LOGIN_VERIFY_ERROR",
+        ip,
+        error: "User not found",
+      });
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Get credentials using your existing db client
-    const credentials = await db.credential.findMany({
-      where: {
-        userId: user.id,
-      },
-    });
-
-    if (!credentials || credentials.length === 0) {
-      return NextResponse.json(
-        { error: "No credentials found for user" },
-        { status: 404 }
+    // Check if MFA is enabled
+    if (user.mfaEnabled) {
+      logger.info(
+        `MFA is enabled for user: ${user.id}, method: ${user.mfaMethod}`,
+        {
+          action: "MFA_REQUIRED",
+          ip,
+        }
       );
+
+      // Create a temporary session token for MFA verification
+      const secret = new TextEncoder().encode(
+        process.env.JWT_SECRET || "your-secret-key-at-least-32-characters-long"
+      );
+
+      const mfaToken = await new SignJWT({
+        id: user.id,
+        email: user.email,
+        requiresMfa: true,
+        mfaMethod: user.mfaMethod,
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("5m") // Short expiration for MFA verification
+        .sign(secret);
+
+      // Set a temporary MFA cookie
+      const cookieStore = await cookies();
+      await cookieStore.set("mfa_pending", mfaToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 5 * 60, // 5 minutes
+        path: "/",
+        sameSite: "lax",
+      });
+
+      return NextResponse.json({
+        requiresMfa: true,
+        mfaMethod: user.mfaMethod,
+      });
     }
 
-    // Find the credential that matches the response
-    const credential = credentials.find((cred: { credentialID: string }) => {
-      // Normalize the credential ID format for comparison
-      const normalizedCredID = normalizeCredentialId(cred.credentialID);
-      const normalizedResponseID = normalizeCredentialId(response.id);
+    // Get user roles for RBAC
+    const userRoles = await dgraphClient.getUserRoles(user.id!);
 
-      return normalizedCredID === normalizedResponseID;
-    });
+    // Create a session token
+    const secret = new TextEncoder().encode(
+      process.env.JWT_SECRET || "your-secret-key-at-least-32-characters-long"
+    );
 
-    if (!credential) {
-      return NextResponse.json(
-        { error: "Credential not found" },
-        { status: 404 }
-      );
-    }
+    const token = await new SignJWT({
+      id: user.id,
+      email: user.email,
+      did: user.did,
+      name: user.name,
+      roles: userRoles, // Include roles in the JWT
+      hasWebAuthn: true,
+      hasPassphrase: user.hasPassphrase || false,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("30d")
+      .sign(secret);
 
-    // Get the challenge from the cookie
+    // Set the session cookie
     const cookieStore = await cookies();
-    const challenge = cookieStore.get("webauthn-challenge")?.value;
-
-    if (!challenge) {
-      logger.error("No challenge found in cookie", {
-        action: "WEBAUTHN_LOGIN_VERIFY",
-        userId: user.id,
-      });
-      return NextResponse.json(
-        { error: "No challenge found" },
-        { status: 400 }
-      );
-    }
-
-    const verification = await verifyAuthenticationResponse({
-      response: response as AuthenticationResponseJSON,
-      expectedChallenge: challenge,
-      expectedOrigin: process.env.NEXT_PUBLIC_DOMAIN!,
-      expectedRPID: process.env.WEBAUTHN_RP_ID!,
-      authenticator: {
-        credentialID: Buffer.from(credential.credentialID, "base64"),
-        credentialPublicKey: Buffer.from(credential.publicKey, "base64"),
-        counter: credential.counter,
-      },
-      requireUserVerification:
-        process.env.WEBAUTHN_USER_VERIFICATION === "required",
+    await cookieStore.set("session", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+      path: "/",
+      sameSite: "lax",
     });
 
-    // Clear the challenge cookie
-    await cookieStore.delete("webauthn-challenge");
-
-    if (!verification.verified) {
-      logger.error("Invalid credentials", {
-        action: "WEBAUTHN_LOGIN_VERIFY",
-        userId: user.id,
-      });
-      return NextResponse.json(
-        { error: "Invalid credentials" },
-        { status: 400 }
-      );
-    }
-
-    await db.credential.update({
-      where: {
-        id: credential.id,
+    // Log the successful login
+    await dgraphClient.createAuditLog({
+      userId: user.id!,
+      action: "WEBAUTHN_LOGIN_SUCCESS",
+      details: {
+        method: "webauthn",
       },
-      data: {
-        counter: verification.authenticationInfo.newCounter,
-      },
+      ipAddress: ip,
+      userAgent,
     });
 
-    logger.info("User authenticated successfully", {
-      action: "WEBAUTHN_LOGIN_VERIFY",
-      userId: user.id,
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        did: user.did,
+        name: user.name,
+        hasWebAuthn: true,
+        hasPassphrase: user.hasPassphrase || false,
+      },
     });
-
-    return NextResponse.json({ success: true });
   } catch (error) {
-    logger.error("Login verification error", {
-      action: "WEBAUTHN_LOGIN_VERIFY",
-      error,
+    logger.error(`Error verifying WebAuthn login: ${error}`, {
+      action: "WEBAUTHN_LOGIN_VERIFY_ERROR",
+      error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to verify login",
+      },
+      { status: 500 }
+    );
   }
 }

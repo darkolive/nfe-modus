@@ -1,93 +1,66 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { generateAuthenticationOptions } from "@simplewebauthn/server";
+import { NextResponse } from "next/server";
+import { generateAuthenticationOptions } from "@/lib/webauthn";
 import logger from "@/lib/logger";
-import { db } from "@/lib/db-operations";
-import type {
-  AuthenticatorTransport,
-  UserVerificationRequirement,
-} from "@simplewebauthn/types";
-import { cookies } from "next/headers";
+import { z } from "zod";
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+// Input validation schema
+const requestSchema = z.object({
+  email: z.string().email("Invalid email format"),
+});
+
+export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { userId } = body;
+    // Get client IP for logging
+    const ip =
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
 
-    if (!userId) {
+    // Parse and validate input
+    const body = await request.json();
+    const validationResult = requestSchema.safeParse(body);
+
+    if (!validationResult.success) {
+      logger.warn(
+        `Invalid WebAuthn login options input: ${JSON.stringify(validationResult.error.errors)}`,
+        {
+          action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
+          ip,
+          error: "Invalid input",
+        }
+      );
       return NextResponse.json(
-        { error: "User ID is required" },
+        {
+          error: "Invalid input",
+          details: validationResult.error.errors,
+        },
         { status: 400 }
       );
     }
 
-    // Get user from database using your existing db client
-    const user = await db.user.findUnique({
-      where: {
-        id: userId,
-      },
+    const { email } = validationResult.data;
+
+    logger.info(`Generating WebAuthn login options for email: ${email}`, {
+      action: "WEBAUTHN_LOGIN_OPTIONS_REQUEST",
+      ip,
     });
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // Get credentials using your existing db client
-    const credentials = await db.credential.findMany({
-      where: {
-        userId: user.id,
-      },
-    });
-
-    if (!credentials || credentials.length === 0) {
-      return NextResponse.json(
-        { error: "No credentials found for user" },
-        { status: 404 }
-      );
-    }
-
-    // Format credentials for authentication
-    const allowCredentials = credentials.map(
-      (cred: { credentialID: string; transports?: string[] }) => ({
-        id: Buffer.from(cred.credentialID, "base64"),
-        type: "public-key" as const,
-        transports: (cred.transports || [
-          "internal",
-        ]) as AuthenticatorTransport[],
-      })
-    );
 
     // Generate authentication options
-    const options = await generateAuthenticationOptions({
-      rpID: process.env.WEBAUTHN_RP_ID!,
-      allowCredentials,
-      userVerification: (process.env.WEBAUTHN_USER_VERIFICATION ||
-        "preferred") as UserVerificationRequirement,
-    });
+    const options = await generateAuthenticationOptions(email);
 
-    // Store the challenge in a cookie
-    const cookieStore = await cookies();
-    cookieStore.set("webauthn-challenge", options.challenge, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 60 * 5, // 5 minutes
-      path: "/",
-    });
-
-    logger.info("Generated authentication options", {
-      action: "WEBAUTHN_LOGIN_OPTIONS",
-      userId: user.id,
-    });
+    // Check if options contains an error
+    if ("error" in options) {
+      return NextResponse.json({ error: options.error }, { status: 400 });
+    }
 
     return NextResponse.json(options);
   } catch (error) {
-    logger.error("Failed to generate authentication options", {
-      action: "WEBAUTHN_LOGIN_OPTIONS",
-      error,
+    logger.error(`Error generating WebAuthn login options: ${error}`, {
+      action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
+      error: error instanceof Error ? error.message : String(error),
     });
-
     return NextResponse.json(
-      { error: "Failed to generate authentication options" },
+      { error: "Failed to generate login options" },
       { status: 500 }
     );
   }

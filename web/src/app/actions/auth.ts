@@ -1,85 +1,54 @@
-"use server";
-
-import { Resend } from "resend";
-import { generateOTP, createOtpData } from "@/lib/utils";
-import { cookies } from "next/headers";
-import { COOKIE_MAX_AGE } from "@/lib/utils";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-export async function sendOtpEmail(email: string) {
+export async function sendOtpEmail(
+  email: string
+): Promise<{ success: boolean; error?: string }> {
   try {
-    // Generate a 6-digit OTP
-    const otp = generateOTP();
-
-    // Create encrypted OTP data
-    const encryptedData = await createOtpData(email, otp);
-
-    // Store the encrypted data in a cookie
-    const cookieStore = await cookies();
-    cookieStore.set("otpData", encryptedData, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: COOKIE_MAX_AGE,
-      path: "/",
+    const response = await fetch("/api/auth/send-otp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email }),
     });
 
-    // Send email with Resend
-    const { error } = await resend.emails.send({
-      from: "info@darkolive.co.uk", // Update with your verified domain
-      to: email,
-      subject: "Your verification code",
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #333; font-size: 24px;">Your verification code</h1>
-          <p style="color: #666; font-size: 16px;">Use the following code to complete your sign in:</p>
-          <div style="background-color: #f4f4f4; padding: 24px; border-radius: 4px; text-align: center; margin: 24px 0;">
-            <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px;">${otp}</span>
-          </div>
-          <p style="color: #666; font-size: 14px;">This code will expire in 5 minutes.</p>
-        </div>
-      `,
-    });
+    const data = await response.json();
 
-    if (error) {
-      console.error("Error sending email:", error);
-      return { success: false, error: "Failed to send verification code" };
+    if (data.success) {
+      return { success: true };
+    } else {
+      return { success: false, error: data.error || "Failed to send OTP" };
     }
-
-    return { success: true };
-  } catch (error) {
-    console.error("Error in sendOtpEmail:", error);
-    return { success: false, error: "An unexpected error occurred" };
+  } catch (error: unknown) {
+    console.error("Error sending OTP:", error);
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to send OTP";
+    return { success: false, error: errorMessage };
   }
 }
 
-export async function verifyOtp(email: string, otp: string) {
+export async function verifyOtp(
+  email: string,
+  otp: string
+): Promise<{ success: boolean; error?: string }> {
   try {
-    const { verifyOtpData } = await import("@/lib/utils");
+    const response = await fetch("/api/auth/verify-otp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, otp }),
+    });
 
-    // Get the encrypted OTP data from the cookie
-    const cookieStore = await cookies();
-    const otpDataCookie = cookieStore.get("otpData");
+    const data = await response.json();
 
-    if (!otpDataCookie) {
-      return { success: false, error: "Verification code expired or invalid" };
-    }
-
-    // Verify the OTP
-    const isValid = await verifyOtpData(email, otp, otpDataCookie.value);
-
-    if (isValid) {
-      // Clear the OTP cookie after successful verification
-      cookieStore.delete("otpData");
-
-      // Here you would typically set an authentication cookie or session
-      // For now, we'll just return success
+    if (data.success) {
       return { success: true };
+    } else {
+      return { success: false, error: data.error || "Invalid OTP" };
     }
-
-    return { success: false, error: "Invalid verification code" };
-  } catch (error) {
-    console.error("Error in verifyOtp:", error);
-    return { success: false, error: "An unexpected error occurred" };
+  } catch (error: unknown) {
+    console.error("Error verifying OTP:", error);
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to verify OTP";
+    return { success: false, error: errorMessage };
   }
 }

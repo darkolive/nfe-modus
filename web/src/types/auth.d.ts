@@ -1,37 +1,34 @@
-import type { User as DgraphUser } from "next-auth";
+// Base user interface
+export interface User {
+  id: string;
+  email: string;
+  did?: string;
+  name?: string;
+  verified?: boolean;
+  hasWebAuthn?: boolean;
+  hasPassphrase?: boolean;
+  passwordHash?: string;
+  passwordSalt?: string;
+  recoveryEmail?: string;
+  mfaEnabled?: boolean;
+  mfaMethod?: string;
+  mfaSecret?: string;
+  failedLoginAttempts?: number;
+  lastFailedLogin?: string;
+  lockedUntil?: string;
+}
 
-// Extend the User type from next-auth
-declare module "next-auth" {
-  interface User extends DgraphUser {
+// Session interface
+export interface Session {
+  user: {
     id: string;
     email: string;
     did?: string;
     name?: string;
-    verified?: boolean;
     hasWebAuthn?: boolean;
     hasPassphrase?: boolean;
-    passwordHash?: string;
-    passwordSalt?: string;
-    recoveryEmail?: string;
-    mfaEnabled?: boolean;
-    mfaMethod?: string;
-    mfaSecret?: string;
-    failedLoginAttempts?: number;
-    lastFailedLogin?: string;
-    lockedUntil?: string;
-  }
-
-  interface Session {
-    user: {
-      id: string;
-      email: string;
-      did?: string;
-      name?: string;
-      hasWebAuthn?: boolean;
-      hasPassphrase?: boolean;
-      roles?: string[];
-    };
-  }
+    roles?: string[];
+  };
 }
 
 // DGraph client params
@@ -51,20 +48,22 @@ export interface ChallengeData {
   expiresAt: Date;
 }
 
+import type { CredentialDeviceType, AuthenticatorTransportFuture, Base64URLString } from "@simplewebauthn/types";
+
 // Credential data
 export interface CredentialData {
-  id?: string;
-  credentialID: string;
-  publicKey: string;
+  uid?: string;
+  credentialID: Base64URLString;
+  credentialPublicKey: Base64URLString;
   counter: number;
-  transports?: string[];
+  transports?: AuthenticatorTransportFuture[];
   createdAt: Date;
   lastUsed?: Date;
   userId: string;
   isBiometric?: boolean;
   name?: string;
-  deviceType?: string;
-  deviceInfo?: Record<string, unknown>;
+  deviceType: CredentialDeviceType;
+  deviceInfo: string;
 }
 
 // User data

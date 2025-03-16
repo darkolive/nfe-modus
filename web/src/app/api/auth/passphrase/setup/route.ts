@@ -1,72 +1,60 @@
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { DgraphClient } from "@/lib/dgraph";
+import { inMemoryStore } from "@/lib/in-memory-store";
 import { hashPassphrase } from "@/lib/passphrase";
-import { cookies } from "next/headers";
-import { jwtVerify } from "jose";
+import logger from "@/lib/logger";
 
-// DGraph client for user operations
-const dgraphClient = new DgraphClient();
-
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // Get the current user from the session
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get("session")?.value;
+    const { email, passphrase } = await request.json();
 
-    if (!sessionCookie) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    // Get email verification from memory
+    const verification = inMemoryStore.getEmailVerification(email);
+    if (!verification) {
+      logger.error("Email verification required");
+      return Response.json(
+        { error: "Email verification required" },
+        { status: 401 }
+      );
     }
 
-    // Verify the JWT
-    const secret = new TextEncoder().encode(
-      process.env.JWT_SECRET || "your-secret-key-at-least-32-characters-long"
-    );
+    // Verify that the email was verified within the last 5 minutes
+    const now = new Date();
+    const verificationTime = new Date(verification.timestamp);
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
-    let payload;
-    try {
-      const result = await jwtVerify(sessionCookie, secret);
-      payload = result.payload;
-    } catch (error) {
-      console.error("JWT verification failed:", error);
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    if (verificationTime < fiveMinutesAgo) {
+      inMemoryStore.deleteEmailVerification(email);
+      logger.error("Email verification expired");
+      return Response.json(
+        { error: "Email verification expired" },
+        { status: 401 }
+      );
     }
 
-    const userId = payload.id as string;
-
-    if (!userId) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
-    }
-
-    // Get the passphrase from the request
-    const { passphrase } = await request.json();
-
-    if (!passphrase) {
-      return NextResponse.json(
-        { error: "Passphrase is required" },
-        { status: 400 }
+    // Verify that the verification method is OTP
+    if (verification.method !== "otp") {
+      logger.error("Invalid verification method");
+      return Response.json(
+        { error: "Invalid verification method" },
+        { status: 401 }
       );
     }
 
     // Hash the passphrase
-    const { hash, salt } = hashPassphrase(passphrase);
+    const { hash, salt } = await hashPassphrase(passphrase);
 
-    // Store the passphrase hash
-    const success = await dgraphClient.storePassphrase(userId, hash, salt);
+    // Store the passphrase hash in the database
+    const client = new DgraphClient();
+    await client.storePassphraseHash(email, hash, salt);
 
-    if (!success) {
-      return NextResponse.json(
-        { error: "Failed to store passphrase" },
-        { status: 500 }
-      );
-    }
+    // Clear the email verification from memory
+    inMemoryStore.deleteEmailVerification(email);
 
-    // Update user record to indicate they have a passphrase set up
-    await dgraphClient.updateUserHasPassphrase(userId, true);
-
-    return NextResponse.json({ success: true });
+    return Response.json({ success: true });
   } catch (error) {
-    console.error("Error setting up passphrase:", error);
-    return NextResponse.json(
+    logger.error("Error setting up passphrase:", error);
+    return Response.json(
       { error: "Failed to set up passphrase" },
       { status: 500 }
     );

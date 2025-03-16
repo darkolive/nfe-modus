@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateAuthenticationOptions } from "@/lib/webauthn";
+import { DgraphClient } from "@/lib/dgraph";
 import logger from "@/lib/logger";
 import { z } from "zod";
 
@@ -39,6 +40,57 @@ export async function POST(request: Request) {
     }
 
     const { email } = validationResult.data;
+    const client = new DgraphClient();
+
+    // Get user and their credentials
+    const user = await client.getUserByEmail(email);
+    if (!user) {
+      logger.warn(`User not found for WebAuthn login: ${email}`, {
+        action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
+        ip,
+        error: "User not found",
+      });
+      return NextResponse.json(
+        {
+          error: "User not found",
+          details: "No user found with this email address",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Check if user has WebAuthn enabled
+    if (!user.hasWebAuthn) {
+      logger.warn(`WebAuthn not enabled for user: ${email}`, {
+        action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
+        ip,
+        error: "WebAuthn not enabled",
+      });
+      return NextResponse.json(
+        {
+          error: "WebAuthn not enabled",
+          details: "Please set up WebAuthn first",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Get user's credentials
+    const credentials = await client.getUserCredentials(user.id);
+    if (!credentials || credentials.length === 0) {
+      logger.warn(`No WebAuthn credentials found for user: ${email}`, {
+        action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
+        ip,
+        error: "No credentials found",
+      });
+      return NextResponse.json(
+        {
+          error: "No credentials found",
+          details: "No WebAuthn credentials found for this user",
+        },
+        { status: 400 }
+      );
+    }
 
     logger.info(`Generating WebAuthn login options for email: ${email}`, {
       action: "WEBAUTHN_LOGIN_OPTIONS_REQUEST",
@@ -46,7 +98,7 @@ export async function POST(request: Request) {
     });
 
     // Generate authentication options
-    const options = await generateAuthenticationOptions(email);
+    const options = await generateAuthenticationOptions(user, credentials);
 
     // Check if options contains an error
     if ("error" in options) {

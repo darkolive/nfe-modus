@@ -1,4 +1,6 @@
 import { verifyOtpData } from "@/lib/utils";
+import { inMemoryStore } from "@/lib/in-memory-store";
+import logger from "@/lib/logger";
 
 const COOKIE_NAME = "auth_otp";
 
@@ -33,6 +35,15 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    // Store verified email in memory with 5-minute expiration
+    inMemoryStore.storeEmailVerification({
+      email,
+      timestamp: new Date().toISOString(),
+      method: 'otp'
+    });
+
+    logger.debug(`Email verification stored in memory for: ${email}`);
 
     // Clear the OTP cookie and return success
     const response = new Response(JSON.stringify({ success: true }), {

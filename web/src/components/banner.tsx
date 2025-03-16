@@ -1,14 +1,23 @@
 "use client";
 
-import { useCallback } from "react";
-import type { Engine } from "tsparticles-engine";
-import Particles from "react-tsparticles";
-import { loadSlim } from "tsparticles-slim";
+import { useEffect, useState } from "react";
+import Particles, { initParticlesEngine } from "@tsparticles/react";
+import { loadSlim } from "@tsparticles/slim";
 
 export function Banner() {
-  const particlesInit = useCallback(async (engine: Engine) => {
-    await loadSlim(engine);
+  const [init, setInit] = useState(false);
+
+  useEffect(() => {
+    initParticlesEngine(async (engine) => {
+      await loadSlim(engine);
+    }).then(() => {
+      setInit(true);
+    });
   }, []);
+
+  if (!init) {
+    return null;
+  }
 
   return (
     <section 
@@ -18,7 +27,6 @@ export function Banner() {
       <Particles
         className="absolute inset-0"
         id="tsparticles"
-        init={particlesInit}
         options={{
           background: {
             opacity: 0,
@@ -38,7 +46,10 @@ export function Banner() {
                 enable: true,
                 mode: "repulse",
               },
-              resize: true,
+              resize: {
+                enable: true,
+                delay: 0.5,
+              },
             },
             modes: {
               push: {
@@ -74,7 +85,8 @@ export function Banner() {
             number: {
               density: {
                 enable: true,
-                area: 800,
+                width: 800,
+                height: 800,
               },
               value: 80,
             },

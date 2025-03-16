@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateRegistrationOptions } from "@/lib/webauthn";
+import { DgraphClient } from "@/lib/dgraph";
 import logger from "@/lib/logger";
 import { z } from "zod";
 
@@ -40,6 +41,11 @@ export async function POST(request: Request) {
     }
 
     const { email, name } = validationResult.data;
+    const client = new DgraphClient();
+
+    // Get user's existing credentials if they exist
+    const user = await client.getUserByEmail(email);
+    const existingCredentials = user ? await client.getUserCredentials(user.id) : [];
 
     logger.info(
       `Generating WebAuthn registration options for email: ${email}`,
@@ -50,7 +56,7 @@ export async function POST(request: Request) {
     );
 
     // Generate registration options
-    const options = await generateRegistrationOptions(email, name);
+    const options = await generateRegistrationOptions(email, existingCredentials, name);
 
     return NextResponse.json(options);
   } catch (error) {

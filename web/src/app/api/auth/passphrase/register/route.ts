@@ -1,80 +1,85 @@
 import { NextResponse } from "next/server";
 import { DgraphClient } from "@/lib/dgraph";
-import { hashPassphrase, generateDID } from "@/lib/passphrase";
+import { hashPassphrase } from "@/lib/crypto";
 import { cookies } from "next/headers";
 import { SignJWT } from "jose";
-import { registrationRateLimiter } from "@/lib/rate-limiter";
 import logger from "@/lib/logger";
 import { z } from "zod";
+import { registrationRateLimiter } from "@/lib/rate-limiter";
+import { generateDid } from "@/lib/did";
+import type { UserData } from "@/types/auth";
 
-// DGraph client for storing and retrieving user data
 const dgraphClient = new DgraphClient();
 
-// Input validation schema
 const registerSchema = z.object({
   email: z.string().email("Invalid email format"),
-  passphrase: z.string().min(8, "Passphrase must be at least 8 characters"),
-  name: z.string().optional(),
-  marketingConsent: z.boolean().optional(),
-  recoveryEmail: z.string().email("Invalid recovery email format").optional(),
-  ipAddress: z.string().optional(),
-  userAgent: z.string().optional(),
+  passphrase: z.string().min(12, "Passphrase must be at least 12 characters"),
+  name: z.string().min(1, "Name is required"),
+  recoveryEmail: z.string().email("Invalid recovery email").optional(),
 });
 
 export async function POST(request: Request) {
   try {
-    // Get client IP for rate limiting
     const ip =
       request.headers.get("x-forwarded-for") ||
       request.headers.get("x-real-ip") ||
       "unknown";
+    const userAgent = request.headers.get("user-agent") || "unknown";
 
-    // Check rate limiting
+    // Check rate limit
     try {
       await registrationRateLimiter.consume(ip);
-    } catch {
-      // No need to use the error variable
-      logger.warn(
-        `Rate limit exceeded for registration attempt from IP: ${ip}`
-      );
+    } catch (error) {
+      logger.warn("Rate limit exceeded for passphrase registration", {
+        action: "PASSPHRASE_REGISTER_RATE_LIMIT",
+        ip,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
       return NextResponse.json(
-        {
-          error: "Too many registration attempts. Please try again later.",
-        },
+        { error: "Too many registration attempts. Please try again later." },
         { status: 429 }
       );
     }
 
-    // Parse and validate input
     const body = await request.json();
-    const validationResult = registerSchema.safeParse(body);
+    const result = registerSchema.safeParse(body);
 
-    if (!validationResult.success) {
-      logger.warn(
-        `Invalid registration input: ${JSON.stringify(validationResult.error.errors)}`
-      );
+    if (!result.success) {
+      logger.warn("Invalid passphrase registration input", {
+        action: "PASSPHRASE_REGISTER_ERROR",
+        ip,
+        error: result.error.errors,
+      });
       return NextResponse.json(
-        {
-          error: "Invalid input",
-          details: validationResult.error.errors,
-        },
+        { error: "Invalid request data" },
         { status: 400 }
       );
     }
 
-    const { email, passphrase, name, marketingConsent, recoveryEmail } =
-      validationResult.data;
-    const ipAddress = body.ipAddress || ip;
-    const userAgent =
-      body.userAgent || request.headers.get("user-agent") || "unknown";
+    const { email, passphrase, name, recoveryEmail } = result.data;
 
-    logger.info(`Registering user with passphrase: ${email}`);
+    // Check if email was recently verified
+    const verifiedEmail = await dgraphClient.getVerifiedEmail(email);
+    if (!verifiedEmail) {
+      return NextResponse.json(
+        { error: "Email not verified" },
+        { status: 400 }
+      );
+    }
+
+    // Check if verification is expired (5 minutes)
+    const now = new Date();
+    if (now > verifiedEmail.expiresAt) {
+      await dgraphClient.deleteVerifiedEmail(email);
+      return NextResponse.json(
+        { error: "Email verification expired" },
+        { status: 400 }
+      );
+    }
 
     // Check if user already exists
     const existingUser = await dgraphClient.getUserByEmail(email);
-
     if (existingUser) {
-      logger.info(`User already exists: ${existingUser.id}`);
       return NextResponse.json(
         { error: "User already exists" },
         { status: 400 }
@@ -82,65 +87,54 @@ export async function POST(request: Request) {
     }
 
     // Hash the passphrase
-    const { hash, salt } = hashPassphrase(passphrase);
-    logger.debug(
-      `Generated hash (${hash.length} chars) and salt (${salt.length} chars)`
-    );
+    const { hash, salt } = await hashPassphrase(passphrase);
 
-    // Generate a DID
-    const did = generateDID(email, passphrase);
+    // Generate DID
+    const did = generateDid();
 
-    logger.info(`Creating user with email: ${email}, did: ${did}`);
-
-    // Create user with password data directly
-    const userData = {
+    // Create user data object
+    const userData: Omit<UserData, "id"> = {
       email,
-      name: name || email.split("@")[0],
+      name,
       did,
       verified: true,
-      emailVerified: new Date(),
-      preferences: {
-        marketingEmails: marketingConsent || false,
-        notificationEmails: true,
-      },
+      emailVerified: verifiedEmail.verifiedAt,
+      dateJoined: now,
+      lastAuthTime: undefined,
+      status: "active",
       hasWebAuthn: false,
-      hasPassphrase: true, // Set to true directly
+      hasPassphrase: true,
       passwordHash: hash,
       passwordSalt: salt,
       recoveryEmail,
+      mfaEnabled: false,
+      mfaMethod: undefined,
+      mfaSecret: undefined,
       failedLoginAttempts: 0,
+      lastFailedLogin: undefined,
+      lockedUntil: undefined,
+      roles: ["user"],
+      createdAt: now,
+      updatedAt: now,
     };
 
-    // Create the user with all data in one mutation
-    const user = await dgraphClient.createUser(userData);
-    logger.info(`Created user with ID: ${user.id}`);
+    // Create user
+    const userId = await dgraphClient.createUser(userData);
 
-    // Verify the password data was stored correctly
-    const verifiedUser = await dgraphClient.getUserById(user.id!);
-    logger.debug(`Verification of user data:`, {
-      hasPassphrase: verifiedUser?.hasPassphrase,
-      passwordHashLength: verifiedUser?.passwordHash?.length || 0,
-      passwordSaltLength: verifiedUser?.passwordSalt?.length || 0,
-    });
+    // Get user roles
+    const userRoles = await dgraphClient.getUserRoles(userId);
 
-    // If password data wasn't stored correctly, try a direct update
-    if (!verifiedUser?.passwordHash || !verifiedUser?.passwordSalt) {
-      logger.warn(
-        `Password data not found after user creation, trying direct update...`
-      );
-      await dgraphClient.storePassphrase(user.id!, hash, salt);
-    }
-
-    // Create a session token
+    // Create session token
     const secret = new TextEncoder().encode(
       process.env.JWT_SECRET || "your-secret-key-at-least-32-characters-long"
     );
 
     const token = await new SignJWT({
-      id: user.id,
-      email: user.email,
-      did: user.did,
-      name: user.name,
+      id: userId,
+      email,
+      did,
+      name,
+      roles: userRoles,
       hasWebAuthn: false,
       hasPassphrase: true,
     })
@@ -149,42 +143,49 @@ export async function POST(request: Request) {
       .setExpirationTime("30d")
       .sign(secret);
 
-    // Set the session cookie
+    // Set session cookie
     const cookieStore = await cookies();
     await cookieStore.set("session", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      maxAge: 30 * 24 * 60 * 60, // 30 days
+      maxAge: 30 * 24 * 60 * 60,
       path: "/",
       sameSite: "lax",
     });
 
-    logger.info(`Session created for user: ${user.id}`);
-
-    // Log the registration
+    // Log successful registration
     await dgraphClient.createAuditLog({
-      userId: user.id!,
-      action: "USER_REGISTERED",
-      details: {
+      userId,
+      action: "PASSPHRASE_REGISTER_SUCCESS",
+      details: JSON.stringify({
         method: "passphrase",
         hasRecoveryEmail: !!recoveryEmail,
-      },
-      ipAddress,
+      }),
+      ipAddress: ip,
       userAgent,
+      metadata: {
+        verificationMethod: verifiedEmail.method,
+      },
     });
 
     // Assign default role
-    await dgraphClient.assignRoleToUser(user.id!, "user");
+    await dgraphClient.assignRoleToUser(userId, "user");
 
     return NextResponse.json({
       success: true,
-      userId: user.id,
-      did: user.did,
+      user: {
+        id: userId,
+        did,
+        email,
+        name,
+        hasWebAuthn: false,
+        hasPassphrase: true,
+      },
     });
   } catch (error) {
-    logger.error(`Error registering with passphrase: ${error}`);
+    logger.error("Error in passphrase registration:", error);
     return NextResponse.json(
-      { error: "Failed to register with passphrase" },
+      { error: "An error occurred during registration" },
       { status: 500 }
     );
   }

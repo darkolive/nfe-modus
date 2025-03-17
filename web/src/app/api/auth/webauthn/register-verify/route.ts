@@ -3,7 +3,8 @@ import { DgraphClient } from "@/lib/dgraph";
 import { verifyRegistration } from "@/lib/webauthn";
 import logger from "@/lib/logger";
 import { z } from "zod";
-import type { RegistrationResponseJSON } from "@simplewebauthn/types";
+import type { RegistrationResponseJSON } from "@simplewebauthn/server";
+import crypto from "crypto";
 
 const dgraphClient = new DgraphClient();
 
@@ -66,6 +67,10 @@ export async function POST(request: Request) {
         user.id
       );
 
+      if (!verificationResult.verified) {
+        throw new Error("Registration verification failed");
+      }
+
       // Add device info to credential
       const deviceInfo = {
         name: deviceName,
@@ -76,13 +81,16 @@ export async function POST(request: Request) {
 
       // Store the credential
       await dgraphClient.storeCredential({
-        ...verificationResult,
-        uid: `0x${Math.floor(Math.random() * 16777215).toString(16)}`,
-        deviceInfo: JSON.stringify(deviceInfo),
+        uid: crypto.randomUUID(),
+        credentialID: verificationResult.registrationInfo.credentialID,
+        credentialPublicKey: verificationResult.registrationInfo.credentialPublicKey,
+        counter: verificationResult.registrationInfo.counter,
+        transports: response.response.transports || [],
         userId: user.id,
         name: deviceName,
         deviceType,
         isBiometric,
+        deviceInfo: JSON.stringify(deviceInfo),
         lastUsed: new Date(),
         createdAt: new Date()
       });

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { DgraphClient } from "@/lib/dgraph";
 import { verifyAuthentication } from "@/lib/webauthn";
 import { createSessionToken } from "@/lib/jwt";
-import { type AuthenticationResponseJSON, type Base64URLString } from "@simplewebauthn/types";
+import { type AuthenticatorTransportFuture, type Base64URLString } from "@simplewebauthn/server";
 import { z } from "zod";
 import logger from "@/lib/logger";
 
@@ -117,11 +117,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // Cast transports to AuthenticatorTransportFuture[] for type safety
+    const verificationCredential = {
+      ...credential,
+      transports: credential.transports as AuthenticatorTransportFuture[]
+    };
+
     // The challenge from the database is already in base64url format
     const verification = await verifyAuthentication(
-      response as AuthenticationResponseJSON,
+      response,
       challenge.challenge,
-      credential
+      verificationCredential
     );
 
     if (!verification.verified) {
@@ -142,7 +148,7 @@ export async function POST(request: Request) {
 
     // Update the credential counter
     await client.updateCredentialCounter(
-      credential.uid!,
+      credential.uid,
       verification.authenticationInfo.newCounter
     );
 

@@ -1,4 +1,4 @@
-import type { AuthenticatorTransportFuture, Base64URLString } from "@simplewebauthn/types";
+import type { AuthenticatorTransportFuture, Base64URLString } from "@simplewebauthn/server";
 
 export interface Challenge {
   email: string;
@@ -11,10 +11,10 @@ export interface Challenge {
 export interface CredentialData {
   uid: string;
   userId: string;
-  credentialID: string;
-  credentialPublicKey: string;
+  credentialID: Base64URLString;
+  credentialPublicKey: Base64URLString;
   counter: number;
-  transports: string[];
+  transports: AuthenticatorTransportFuture[];
   lastUsed: Date;
   createdAt: Date;
   name: string;

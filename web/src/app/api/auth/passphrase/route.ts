@@ -4,6 +4,7 @@ import { createSessionToken } from "@/lib/jwt";
 import { z } from "zod";
 import logger from "@/lib/logger";
 import { verifyPassphrase } from "@/lib/crypto";
+import { type SessionData } from "@/types/auth";
 
 // Input validation schema
 const PassphraseSchema = z.object({
@@ -128,19 +129,18 @@ export async function POST(request: Request) {
     }
 
     // Reset failed login attempts
-    await client.updateUser({
-      id: user.id,
+    await client.updateUser(user.id, {
       failedLoginAttempts: 0,
       lastAuthTime: new Date(),
     });
 
     // Create session token
-    const sessionData = {
+    const sessionData: SessionData = {
       id: user.id,
+      userId: user.id,
       email: user.email,
-      roles: user.roles,
-      hasWebAuthn: user.hasWebAuthn,
-      hasPassphrase: user.hasPassphrase,
+      deviceId: "browser", // Default device ID for passphrase authentication
+      roles: user.roles.map(role => role.uid),
     };
 
     const token = await createSessionToken(sessionData);

@@ -25,7 +25,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const verification = await verifyAuthentication(email, response);
+    // Get the stored challenge for this email
+    const challenge = await dgraphClient.getChallenge(email);
+    if (!challenge) {
+      logger.warn("No challenge found for email", {
+        action: "WEBAUTHN_LOGIN_VERIFY_ERROR",
+        error: "No challenge found",
+      });
+      return NextResponse.json(
+        { error: "Authentication failed - no challenge found" },
+        { status: 400 }
+      );
+    }
+
+    // Get the credential by ID
+    const credentialId = toBase64Url(response.id);
+    const credential = await dgraphClient.getCredentialById(credentialId);
+    if (!credential) {
+      logger.warn("No credential found with ID", {
+        action: "WEBAUTHN_LOGIN_VERIFY_ERROR",
+        error: "No credential found",
+      });
+      return NextResponse.json(
+        { error: "Authentication failed - credential not found" },
+        { status: 400 }
+      );
+    }
+
+    // Verify the authentication
+    const verification = await verifyAuthentication(
+      response,
+      challenge.challenge,
+      {
+        credentialID: credential.credentialID,
+        credentialPublicKey: credential.credentialPublicKey,
+        counter: credential.counter,
+        transports: credential.transports
+      }
+    );
 
     if (!verification.verified) {
       logger.warn("Authentication verification failed", {
@@ -35,19 +72,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Authentication failed" },
         { status: 400 }
-      );
-    }
-
-    const credential = await dgraphClient.getCredentialById(toBase64Url(response.id));
-
-    if (!credential) {
-      logger.warn("Credential not found", {
-        action: "WEBAUTHN_LOGIN_VERIFY_ERROR",
-        error: "Credential not found",
-      });
-      return NextResponse.json(
-        { error: "Credential not found" },
-        { status: 404 }
       );
     }
 

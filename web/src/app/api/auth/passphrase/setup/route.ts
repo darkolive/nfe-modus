@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { DgraphClient } from "@/lib/dgraph";
 import { inMemoryStore } from "@/lib/in-memory-store";
-import { hashPassphrase } from "@/lib/passphrase";
+import { hashPassphrase } from "@/lib/crypto";
 import logger from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
@@ -46,7 +46,24 @@ export async function POST(request: NextRequest) {
 
     // Store the passphrase hash in the database
     const client = new DgraphClient();
-    await client.storePassphraseHash(email, hash, salt);
+    
+    // Get the user by email
+    const user = await client.getUserByEmail(email);
+    if (!user) {
+      logger.error("User not found");
+      return Response.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+    
+    // Update the user with the passphrase hash and salt
+    await client.updateUser(user.id, {
+      passwordHash: hash,
+      passwordSalt: salt,
+      hasPassphrase: true,
+      updatedAt: new Date()
+    });
 
     // Clear the email verification from memory
     inMemoryStore.deleteEmailVerification(email);

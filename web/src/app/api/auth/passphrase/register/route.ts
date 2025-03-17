@@ -7,7 +7,7 @@ import logger from "@/lib/logger";
 import { z } from "zod";
 import { registrationRateLimiter } from "@/lib/rate-limiter";
 import { generateDid } from "@/lib/did";
-import type { UserData } from "@/types/auth";
+import { inMemoryStore } from "@/lib/in-memory-store";
 
 const dgraphClient = new DgraphClient();
 
@@ -18,7 +18,7 @@ const registerSchema = z.object({
   recoveryEmail: z.string().email("Invalid recovery email").optional(),
 });
 
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<NextResponse> {
   try {
     const ip =
       request.headers.get("x-forwarded-for") ||
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     const { email, passphrase, name, recoveryEmail } = result.data;
 
     // Check if email was recently verified
-    const verifiedEmail = await dgraphClient.getVerifiedEmail(email);
+    const verifiedEmail = inMemoryStore.getEmailVerification(email);
     if (!verifiedEmail) {
       return NextResponse.json(
         { error: "Email not verified" },
@@ -69,8 +69,11 @@ export async function POST(request: Request) {
 
     // Check if verification is expired (5 minutes)
     const now = new Date();
-    if (now > verifiedEmail.expiresAt) {
-      await dgraphClient.deleteVerifiedEmail(email);
+    const verificationTime = new Date(verifiedEmail.timestamp);
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    
+    if (verificationTime < fiveMinutesAgo) {
+      inMemoryStore.deleteEmailVerification(email);
       return NextResponse.json(
         { error: "Email verification expired" },
         { status: 400 }
@@ -93,29 +96,29 @@ export async function POST(request: Request) {
     const did = generateDid();
 
     // Create user data object
-    const userData: Omit<UserData, "id"> = {
+    const userData = {
       email,
       name,
       did,
       verified: true,
-      emailVerified: verifiedEmail.verifiedAt,
+      emailVerified: verifiedEmail.timestamp,
       dateJoined: now,
       lastAuthTime: null,
-      status: "active",
+      status: "active" as const,
       hasWebAuthn: false,
       hasPassphrase: true,
       passwordHash: hash,
       passwordSalt: salt,
-      recoveryEmail,
+      recoveryEmail: recoveryEmail || null,
       mfaEnabled: false,
       mfaMethod: undefined,
       mfaSecret: undefined,
       failedLoginAttempts: 0,
       lastFailedLogin: null,
       lockedUntil: null,
-      roles: ["user"],
+      roles: [],
       createdAt: now,
-      updatedAt: now,
+      updatedAt: now
     };
 
     // Create user

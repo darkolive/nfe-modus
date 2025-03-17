@@ -1,6 +1,5 @@
 import { verifyOtpData } from "@/lib/utils";
 import { inMemoryStore } from "@/lib/in-memory-store";
-import { DgraphClient } from "@/lib/dgraph";
 import logger from "@/lib/logger";
 
 const COOKIE_NAME = "auth_otp";
@@ -37,8 +36,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Store verified email in both in-memory store and Dgraph
-    const dgraphClient = new DgraphClient();
+    // Verification successful
+    logger.info(`OTP verification successful for: ${email}`);
     
     logger.debug(`Storing email verification in memory for: ${email}`);
     inMemoryStore.storeEmailVerification({
@@ -47,8 +46,7 @@ export async function POST(request: Request) {
       method: 'otp'
     });
     
-    await dgraphClient.storeVerifiedEmail(email, 'otp');
-    logger.debug(`Email verification stored in Dgraph for: ${email}`);
+    logger.debug(`Email verification stored in memory for: ${email}`);
 
     // Clear the OTP cookie and return success
     const response = new Response(JSON.stringify({ success: true }), {

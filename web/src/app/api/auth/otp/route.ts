@@ -4,6 +4,7 @@ import { decrypt } from "@/lib/crypto";
 import { DgraphClient } from "@/lib/dgraph";
 import logger from "@/lib/logger";
 import { toBase64Url } from "@/lib/webauthn";
+import { inMemoryStore } from "@/lib/in-memory-store";
 
 interface OTPData {
   email: string;
@@ -97,7 +98,11 @@ export async function POST(request: Request) {
       }
 
       // Store verified email in memory for passphrase setup
-      await dgraph.storeVerifiedEmail(storedEmail);
+      inMemoryStore.storeEmailVerification({
+        email: storedEmail,
+        timestamp: new Date().toISOString(),
+        method: 'otp'
+      });
 
       // Clear OTP cookie
       const response = NextResponse.json({ success: true });

@@ -98,7 +98,7 @@ export async function POST(request: Request) {
     });
 
     // Generate authentication options
-    const options = await generateAuthenticationOptions(user, credentials);
+    const options = await generateAuthenticationOptions(email);
 
     // Check if options contains an error
     if ("error" in options) {

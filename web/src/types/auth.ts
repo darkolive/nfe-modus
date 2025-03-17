@@ -29,16 +29,30 @@ export interface User {
   name?: string;
   did: string;
   verified: boolean;
+  emailVerified: Date | null;
   dateJoined: Date;
+  lastAuthTime: Date | null;
   status: "active" | "inactive" | "suspended";
   hasWebAuthn: boolean;
   hasPassphrase: boolean;
+  passwordHash?: string;
+  passwordSalt?: string;
+  recoveryEmail?: string;
   mfaEnabled: boolean;
+  mfaMethod?: string;
+  mfaSecret?: string;
   failedLoginAttempts: number;
+  lastFailedLogin: Date | null;
+  lockedUntil: Date | null;
   roles: string[];
 }
 
-export interface UserData extends Omit<User, "id"> {}
+export interface UserData extends Omit<User, "id"> {
+  lastVerified?: Date;
+  verificationMethod?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 export interface SessionData {
   id: string;
@@ -132,5 +146,5 @@ export interface DgraphClient {
   getUserRoles(userId: string): Promise<string[]>;
   getLatestChallenge(email: string): Promise<Challenge | null>;
   getAllChallenges(email: string): Promise<Challenge[]>;
-  executeDQLQuery<T>(query: string, vars?: Record<string, any>): Promise<T>;
+  executeDQLQuery<T>(query: string, vars?: Record<string, unknown>): Promise<T>;
 }

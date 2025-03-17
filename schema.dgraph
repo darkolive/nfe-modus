@@ -1,186 +1,274 @@
-# Predicates (fields)
-id: string @index(hash) .
-email: string @index(exact) @upsert .
-name: string .
-did: string @index(exact) @upsert .
-passwordHash: string .
-passwordSalt: string .
-recoveryHash: string .
-emailVerified: datetime .
-status: string @index(exact) .
-verified: bool @index(bool) .
-dateJoined: datetime @index(day) .
-lastAuthTime: datetime @index(hour) .
-marketingEmails: bool .
-notificationEmails: bool .
-credentialID: string @index(hash) .
-publicKey: string .
-counter: int .
-transports: [string] .
-lastChallenge: string .
-lastUsed: datetime .
-createdAt: datetime .
-isBiometric: bool .
-sessionToken: string @index(hash) @upsert .
-expires: datetime .
-userId: string @index(hash) .
-type: string @index(hash) .
-provider: string @index(hash) .
-providerAccountId: string @index(hash) .
-refresh_token: string .
-access_token: string .
-expires_at: int .
-token_type: string .
-scope: string .
-id_token: string .
-session_state: string .
-identifier: string @index(hash) .
-token: string @index(hash) @upsert .
-challenge: string @index(hash) .
-expiresAt: datetime .
-description: string .
-userDID: string @index(hash) .
-deviceID: string .
-message: string .
-success: bool .
-assertionData: string .  # Added missing predicate
-
-# Relationships
-devices: [uid] @reverse .
-user: uid @reverse .
-sessions: [uid] @reverse .
-accounts: [uid] @reverse .
-roles: [uid] @reverse .
-users: [uid] @reverse .
-permissions: [uid] @reverse .
-preferences: uid @reverse .
-
-# Type definitions
-type User {
-  id
-  email
-  name
-  did
-  passwordHash
-  passwordSalt
-  recoveryHash
-  emailVerified
-  status
-  verified
-  dateJoined
-  lastAuthTime
-  devices
-  sessions
-  accounts
-  roles
-  preferences
+<access_token>: string .
+<accounts>: [uid] @reverse .
+<action>: string @index(exact) .
+<assertionData>: string .
+<authenticationSession.createdAt>: datetime .
+<authenticationSession.deviceID>: string .
+<authenticationSession.expiresAt>: datetime .
+<authenticationSession.id>: string @index(hash) @upsert .
+<authenticationSession.token>: string @index(hash) .
+<authenticationSession.userDID>: string .
+<challenge>: string @index(exact) .
+<counter>: int .
+<created>: string .
+<createdAt>: datetime .
+<credentialID>: string @index(exact) .
+<credentialPublicKey>: string .
+<dateJoined>: datetime @index(day) .
+<description>: string .
+<details>: string .
+<device.createdAt>: datetime .
+<device.credentialID>: string .
+<device.id>: string @index(hash) @upsert .
+<device.lastChallenge>: string .
+<device.lastUsed>: datetime .
+<device.publicKey>: string .
+<device.signCount>: default .
+<device.userDID>: string .
+<deviceID>: string .
+<deviceInfo>: string .
+<deviceType>: string .
+<devices>: [uid] @reverse .
+<dgraph.drop.op>: string .
+<dgraph.graphql.p_query>: string @index(sha256) .
+<dgraph.graphql.schema>: string .
+<dgraph.graphql.xid>: string @index(exact) @upsert .
+<did>: string @index(exact) .
+<email>: string @index(exact) .
+<emailVerified>: datetime .
+<expires>: datetime .
+<expiresAt>: datetime .
+<expires_at>: int .
+<failedAttempts>: int .
+<failedLoginAttempts>: int .
+<hasDevice>: [uid] @reverse .
+<hasPassphrase>: bool .
+<hasRole>: [uid] @reverse .
+<hasSession>: [uid] @reverse .
+<hasWebAuthn>: bool .
+<iD>: string @index(exact) .
+<id>: string @index(hash) .
+<id_token>: string .
+<identifier>: string @index(hash) .
+<ipAddress>: string .
+<isBiometric>: bool .
+<isRevoked>: bool .
+<isUsed>: bool .
+<lastAuthTime>: datetime @index(hour) .
+<lastChallenge>: string .
+<lastFailedLogin>: datetime .
+<lastOTPRequestTime>: datetime @index(hour) .
+<lastUsed>: datetime .
+<lockedUntil>: datetime .
+<marketingEmails>: bool .
+<message>: string .
+<method>: string .
+<mfaEnabled>: bool .
+<mfaMethod>: string .
+<mfaSecret>: string .
+<n>: string .
+<name>: string @index(exact) .
+<notificationEmails>: bool .
+<otp>: string .
+<otpCreatedAt>: datetime @index(hour) .
+<passwordHash>: string .
+<passwordSalt>: string .
+<permissions>: [uid] @reverse .
+<preferences>: uid @reverse .
+<provider>: string @index(hash) .
+<providerAccountId>: string @index(hash) .
+<publicKey>: string .
+<recoveryEmail>: string @index(exact) .
+<recoveryHash>: string .
+<refresh_token>: string .
+<roles>: [uid] @reverse .
+<scope>: string .
+<sessionToken>: string @index(hash) @upsert .
+<session_state>: string .
+<sessions>: [uid] @reverse .
+<startAuth.challenge>: string .
+<startAuth.email>: string .
+<startAuth.message>: string .
+<startAuth.success>: bool .
+<status>: string .
+<success>: bool .
+<timestamp>: datetime @index(hour) .
+<timestampDt>: datetime @index(hour) .
+<token>: string @index(exact) .
+<token_type>: string .
+<transports>: [string] .
+<type>: string @index(hash) .
+<updatedAt>: string .
+<user.createdAt>: default .
+<user.did>: default .
+<user.email>: default .
+<user>: uid @reverse .
+<userAgent>: string .
+<userDID>: string @index(hash) .
+<userDid>: default .
+<userId>: string @index(hash) .
+<users>: [uid] @reverse .
+<verified>: bool .
+<verifiedAt>: string .
+<verifyOTP.message>: string .
+<verifyOTP.success>: bool .
+<verifyOTP.token>: string .
+<verifyOTP.user>: uid .
+<verifyPasskey.assertionData>: string .
+<verifyPasskey.deviceID>: string .
+<verifyPasskey.email>: string .
+<verifyPasskey.message>: string .
+<verifyPasskey.success>: bool .
+<verifyPasskey.token>: string .
+<verifyPasskey.user>: uid .
+type <Account> {
+	id
+	userId
+	type
+	provider
+	providerAccountId
+	refresh_token
+	access_token
+	expires_at
+	token_type
+	scope
+	id_token
+	session_state
+	user
 }
-
-type UserPreferences {
-  id
-  marketingEmails
-  notificationEmails
-  user
+type <AuditLog> {
+	userId
+	action
+	details
+	ipAddress
+	userAgent
+	timestamp
 }
-
-type Device {
-  id
-  credentialID
-  publicKey
-  counter
-  transports
-  lastChallenge
-  lastUsed
-  createdAt
-  name
-  isBiometric
-  user
+type <AuthenticationSession> {
+	id
+	userDID
+	token
+	deviceID
+	createdAt
+	expiresAt
+	user
 }
-
-type Session {
-  id
-  sessionToken
-  userId
-  expires
-  user
+type <Challenge> {
+	challenge
+	email
+	userId
+	createdAt
+	expiresAt
 }
-
-type Account {
-  id
-  userId
-  type
-  provider
-  providerAccountId
-  refresh_token
-  access_token
-  expires_at
-  token_type
-  scope
-  id_token
-  session_state
-  user
+type <Device> {
+	credentialID
+	credentialPublicKey
+	counter
+	transports
+	lastUsed
+	createdAt
+	name
+	isBiometric
+	deviceType
+	deviceInfo
+	userId
 }
-
-type VerificationToken {
-  id
-  identifier
-  token
-  expires
+type <PasswordResetToken> {
+	userId
+	token
+	expiresAt
+	createdAt
+	isUsed
 }
-
-type Challenge {
-  id
-  challenge
-  email
-  userId
-  createdAt
-  expiresAt
+type <Permission> {
+	id
+	name
+	description
+	roles
 }
-
-type AuthenticationSession {
-  id
-  userDID
-  token
-  deviceID
-  createdAt
-  expiresAt
-  user
+type <Role> {
+	name
+	permissions
 }
-
-type Role {
-  id
-  name
-  description
-  permissions
-  users
+type <Session> {
+	id
+	sessionToken
+	userId
+	expires
+	user
 }
-
-type Permission {
-  id
-  name
-  description
-  roles
+type <SessionToken> {
+	userId
+	token
+	expiresAt
+	createdAt
+	lastUsed
+	ipAddress
+	userAgent
+	isRevoked
 }
-
-type StartAuthenticationRequest {
-  email
+type <StartAuthenticationRequest> {
+	email
 }
-
-type StartAuthenticationResponse {
-  success
-  message
-  challenge
+type <StartAuthenticationResponse> {
+	success
+	message
+	challenge
 }
-
-type VerifyPasskeyRequest {
-  email
-  deviceID
-  assertionData
+type <User> {
+	email
+	did
+	name
+	verified
+	emailVerified
+	dateJoined
+	lastAuthTime
+	status
+	hasWebAuthn
+	hasPassphrase
+	passwordHash
+	passwordSalt
+	recoveryEmail
+	mfaEnabled
+	mfaMethod
+	mfaSecret
+	failedLoginAttempts
+	lastFailedLogin
+	lockedUntil
+	preferences
+	roles
 }
-
-type VerifyPasskeyResponse {
-  success
-  message
-  token
-  user
+type <UserPreferences> {
+	marketingEmails
+	notificationEmails
+}
+type <VerificationToken> {
+	id
+	identifier
+	token
+	expires
+}
+type <VerifyOTPResponse> {
+	verifyOTP.success
+	verifyOTP.message
+	verifyOTP.token
+	verifyOTP.user
+}
+type <VerifyPasskeyRequest> {
+	email
+	deviceID
+	assertionData
+}
+type <VerifyPasskeyResponse> {
+	success
+	message
+	token
+	user
+}
+type <dgraph.graphql> {
+	dgraph.graphql.schema
+	dgraph.graphql.xid
+}
+type <dgraph.graphql.persisted_query> {
+	dgraph.graphql.p_query
 }

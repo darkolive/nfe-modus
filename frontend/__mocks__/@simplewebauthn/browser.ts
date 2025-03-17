@@ -1,5 +1,0 @@
-export const browserSupportsWebAuthn = jest.fn(() => true)
-export const browserSupportsWebAuthnAutofill = jest.fn(() => true)
-export const platformAuthenticatorIsAvailable = jest.fn(() => Promise.resolve(true))
-export const startAuthentication = jest.fn()
-export const startRegistration = jest.fn()

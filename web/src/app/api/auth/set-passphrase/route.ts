@@ -5,7 +5,6 @@ import logger from "@/lib/logger";
 import { hashPassphrase } from "@/lib/crypto";
 import * as crypto from 'crypto';
 import { inMemoryStore } from "@/lib/in-memory-store";
-import type { UserData } from "@/types/auth";
 
 // Input validation schema
 const SetPassphraseSchema = z.object({
@@ -92,13 +91,15 @@ export async function POST(request: Request) {
         passwordSalt: salt,
         recoveryEmail: "",
         mfaEnabled: false,
-        mfaMethod: "",
-        mfaSecret: "",
+        mfaMethod: undefined,
+        mfaSecret: undefined,
         failedLoginAttempts: 0,
+        lastFailedLogin: null,
+        lockedUntil: null,
         roles: ["user"], // Default role
         createdAt: new Date(),
-        updatedAt: new Date(),
-      } as Omit<UserData, 'id'>);
+        updatedAt: new Date()
+      });
 
       // Get the newly created user
       user = await client.getUserByEmail(email);
@@ -106,14 +107,13 @@ export async function POST(request: Request) {
         throw new Error("Failed to create user");
       }
     } else {
-      // Update existing user with hashed passphrase
+      // Update user with passphrase
       await client.updateUser({
         id: user.id,
         hasPassphrase: true,
         passwordHash: hash,
         passwordSalt: salt,
-        email: user.email,
-        updatedAt: new Date(),
+        lastAuthTime: new Date()
       });
     }
 

@@ -3,8 +3,15 @@
 import * as React from "react";
 import { AppBar, Switch } from "@skeletonlabs/skeleton-react";
 import { Logo } from "@/components/logo";
-import SignIn from "@/components/auth/signin";
-import { Moon, Sun, Mic, SlidersVertical, Menu, Search } from "lucide-react";
+import {
+  Moon,
+  Sun,
+  Mic,
+  SlidersVertical,
+  Menu,
+  Search,
+  LogIn,
+} from "lucide-react";
 
 export function Header() {
   const [mounted, setMounted] = React.useState(false);
@@ -61,7 +68,7 @@ export function Header() {
           <Mic size={20} />
           <SlidersVertical size={20} />
           <Menu size={20} />
-          <SignIn />
+          <LogIn size={30} />
         </AppBar.ToolbarTrail>
       </AppBar.Toolbar>
     </AppBar>

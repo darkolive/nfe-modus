@@ -28,13 +28,21 @@ export async function POST(request: Request) {
           did: `did:web:${email.split("@")[1]}:${email.split("@")[0]}`,
           name: "",
           verified: false,
+          emailVerified: null,
           dateJoined: new Date(),
+          lastAuthTime: null,
           status: "active",
           hasWebAuthn: false,
           hasPassphrase: false,
           mfaEnabled: false,
+          mfaMethod: undefined,
+          mfaSecret: undefined,
           failedLoginAttempts: 0,
-          roles: []
+          lastFailedLogin: null,
+          lockedUntil: null,
+          roles: [],
+          createdAt: new Date(),
+          updatedAt: new Date()
         });
       } catch (createError) {
         logger.error("Error creating user:", createError);

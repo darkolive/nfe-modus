@@ -5,24 +5,8 @@ import { jwtVerify } from "jose";
 // Define protected routes that require authentication
 const protectedRoutes = ["/dashboard", "/profile", "/settings"];
 
-// Define debug routes that should be accessible in development
-const debugRoutes = [
-  "/api/debug-credentials",
-  "/api/debug-dgraph-schema",
-  "/api/debug-challenges",
-  "/api/test-dgraph",
-];
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-
-  // Allow debug routes in development
-  if (
-    process.env.NODE_ENV === "development" &&
-    debugRoutes.some((route) => pathname.startsWith(route))
-  ) {
-    return NextResponse.next();
-  }
 
   // Check if the route is protected
   const isProtectedRoute = protectedRoutes.some(

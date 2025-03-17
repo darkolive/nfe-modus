@@ -132,7 +132,6 @@ export async function POST(request: Request) {
       id: user.id,
       failedLoginAttempts: 0,
       lastAuthTime: new Date(),
-      updatedAt: new Date(),
     });
 
     // Create session token

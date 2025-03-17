@@ -4,7 +4,6 @@ import { verifyRegistration } from "@/lib/webauthn";
 import logger from "@/lib/logger";
 import { z } from "zod";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
-import crypto from "crypto";
 
 const dgraphClient = new DgraphClient();
 
@@ -42,7 +41,8 @@ export async function POST(request: Request) {
 
     // Check if challenge is expired (5 minutes)
     const now = new Date();
-    if (now > challenge.expiresAt) {
+    const expiresAt = new Date(challenge.expiresAt);
+    if (now > expiresAt) {
       await dgraphClient.deleteChallenge(challenge.email);
       return NextResponse.json(
         { error: "Challenge expired" },
@@ -60,50 +60,38 @@ export async function POST(request: Request) {
     }
 
     try {
-      // Verify the registration response
+      // Create device info
+      const deviceInfo = JSON.stringify({
+        name: deviceName,
+        type: deviceType,
+        isBiometric,
+        userAgent: request.headers.get("user-agent") || "unknown"
+      });
+
+      // Verify the registration response using the correct parameters
       const verificationResult = await verifyRegistration(
+        challenge.userId,
+        challenge.email,
+        deviceName,
         response,
-        challenge.challenge,
-        user.id
+        deviceInfo
       );
 
       if (!verificationResult.verified) {
         throw new Error("Registration verification failed");
       }
 
-      // Add device info to credential
-      const deviceInfo = {
-        name: deviceName,
-        type: deviceType,
-        isBiometric,
-        userAgent: request.headers.get("user-agent") || "unknown"
-      };
-
-      // Store the credential
-      await dgraphClient.storeCredential({
-        uid: crypto.randomUUID(),
-        credentialID: verificationResult.registrationInfo.credentialID,
-        credentialPublicKey: verificationResult.registrationInfo.credentialPublicKey,
-        counter: verificationResult.registrationInfo.counter,
-        transports: response.response.transports || [],
-        userId: user.id,
-        name: deviceName,
-        deviceType,
-        isBiometric,
-        deviceInfo: JSON.stringify(deviceInfo),
-        lastUsed: new Date(),
-        createdAt: new Date()
+      // Update user hasWebAuthn flag
+      await dgraphClient.updateUser(challenge.userId, {
+        hasWebAuthn: true,
+        updatedAt: new Date()
       });
 
-      // Update user hasWebAuthn flag
-      await dgraphClient.updateUserHasWebAuthn(user.id, true);
-
-      // Delete the challenge
-      await dgraphClient.deleteChallenge(challenge.email);
+      // Delete the challenge - already handled in verifyRegistration
 
       // Log successful registration
       await dgraphClient.createAuditLog({
-        userId: user.id,
+        userId: challenge.userId,
         action: "WEBAUTHN_REGISTER_SUCCESS",
         details: JSON.stringify({
           method: "webauthn",
@@ -116,7 +104,7 @@ export async function POST(request: Request) {
                   "unknown",
         userAgent: request.headers.get("user-agent") || "unknown",
         metadata: {
-          deviceInfo
+          deviceInfo: JSON.parse(deviceInfo)
         }
       });
 
@@ -129,7 +117,7 @@ export async function POST(request: Request) {
 
       // Log failed registration
       await dgraphClient.createAuditLog({
-        userId: user.id,
+        userId: challenge.userId,
         action: "WEBAUTHN_REGISTER_FAILED",
         details: JSON.stringify({
           method: "webauthn",

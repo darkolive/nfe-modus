@@ -9,7 +9,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
-} from "@simplewebauthn/types";
+} from "@simplewebauthn/server";
 
 /**
  * Client-side WebAuthn functions for use in React components

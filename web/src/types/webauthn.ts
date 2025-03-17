@@ -1,4 +1,4 @@
-import { AuthenticatorTransportFuture } from "@simplewebauthn/types";
+import { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 
 export interface CredentialData {
   uid: string;
@@ -6,8 +6,9 @@ export interface CredentialData {
   credentialPublicKey: string;
   counter: number;
   transports: AuthenticatorTransportFuture[];
-  lastUsed: Date;
+  lastUsed: Date | null;
   createdAt: Date;
+  updatedAt: Date | null;
   name: string;
   isBiometric: boolean;
   deviceType: string;

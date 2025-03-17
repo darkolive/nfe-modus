@@ -5,6 +5,7 @@ import { createSessionToken } from "@/lib/jwt";
 import { type AuthenticatorTransportFuture, type Base64URLString } from "@simplewebauthn/server";
 import { z } from "zod";
 import logger from "@/lib/logger";
+import type { SessionData } from "@/types/auth";
 
 // Input validation schema following Skeleton v3 patterns
 const AuthenticateVerifySchema = z.object({
@@ -119,11 +120,13 @@ export async function POST(request: Request) {
 
     // Cast transports to AuthenticatorTransportFuture[] for type safety
     const verificationCredential = {
-      ...credential,
+      credentialID: credential.credentialID,
+      credentialPublicKey: credential.credentialPublicKey,
+      counter: credential.counter,
       transports: credential.transports as AuthenticatorTransportFuture[]
     };
 
-    // The challenge from the database is already in base64url format
+    // Verify the authentication response
     const verification = await verifyAuthentication(
       response,
       challenge.challenge,
@@ -148,27 +151,26 @@ export async function POST(request: Request) {
 
     // Update the credential counter
     await client.updateCredentialCounter(
-      credential.uid,
+      credential.credentialID,
       verification.authenticationInfo.newCounter
     );
 
     // Update user's last authentication time
     const now = new Date();
     const updates = {
-      id: user.id,
       lastAuthTime: now,
       updatedAt: now,
       hasWebAuthn: true, // Ensure this is set since we've verified WebAuthn
     };
-    await client.updateUser(updates);
+    await client.updateUser(user.id, updates);
 
     // Create session token
-    const sessionData = {
+    const sessionData: SessionData = {
       id: user.id,
+      userId: user.id, // Use the user's ID for both id and userId fields
       email: user.email,
-      roles: user.roles,
-      hasWebAuthn: true,
-      hasPassphrase: user.hasPassphrase,
+      deviceId: credential.credentialID, // Use the credential ID as the device ID
+      roles: user.roles.map(role => role.uid), // Convert role objects to strings
     };
 
     const token = await createSessionToken(sessionData);

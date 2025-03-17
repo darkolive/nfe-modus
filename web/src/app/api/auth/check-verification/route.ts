@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DgraphClient } from "@/lib/dgraph";
+import { inMemoryStore } from "@/lib/in-memory-store";
 import logger from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
-  const client = new DgraphClient();
   const searchParams = request.nextUrl.searchParams;
   const email = searchParams.get("email");
 
@@ -16,15 +15,18 @@ export async function GET(request: NextRequest) {
 
   try {
     // Check if email was recently verified
-    const verifiedEmail = await client.getVerifiedEmail(email);
+    const verifiedEmail = inMemoryStore.getEmailVerification(email);
     
     if (!verifiedEmail) {
       return NextResponse.json({ verified: false });
     }
 
     // Check if verification has expired (5 minutes)
+    const verificationTime = new Date(verifiedEmail.timestamp);
     const now = new Date();
-    if (verifiedEmail.expiresAt < now) {
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    
+    if (verificationTime < fiveMinutesAgo) {
       return NextResponse.json({ verified: false });
     }
 

@@ -48,7 +48,7 @@ export interface ChallengeData {
   expiresAt: Date;
 }
 
-import type { CredentialDeviceType, AuthenticatorTransportFuture, Base64URLString } from "@simplewebauthn/types";
+import type { CredentialDeviceType, AuthenticatorTransportFuture, Base64URLString } from "@simplewebauthn/server";
 
 // Credential data
 export interface CredentialData {

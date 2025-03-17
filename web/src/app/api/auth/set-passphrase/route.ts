@@ -81,22 +81,22 @@ export async function POST(request: Request) {
         name: email.split("@")[0], // Use part before @ as temporary name
         did: crypto.randomUUID(),
         verified: true,
-        emailVerified: new Date(verification.timestamp),
+        emailVerified: new Date(verification.timestamp).toISOString(),
         dateJoined: new Date(),
-        lastAuthTime: new Date(),
+        lastAuthTime: new Date().toISOString(),
         status: "active",
         hasWebAuthn: false,
         hasPassphrase: true,
         passwordHash: hash,
         passwordSalt: salt,
-        recoveryEmail: "",
+        recoveryEmail: null,
         mfaEnabled: false,
         mfaMethod: undefined,
         mfaSecret: undefined,
         failedLoginAttempts: 0,
         lastFailedLogin: null,
         lockedUntil: null,
-        roles: ["user"], // Default role
+        roles: [], // Empty array of role objects
         createdAt: new Date(),
         updatedAt: new Date()
       });
@@ -108,12 +108,11 @@ export async function POST(request: Request) {
       }
     } else {
       // Update user with passphrase
-      await client.updateUser({
-        id: user.id,
+      await client.updateUser(user.id, {
         hasPassphrase: true,
         passwordHash: hash,
         passwordSalt: salt,
-        lastAuthTime: new Date()
+        lastAuthTime: new Date().toISOString()
       });
     }
 

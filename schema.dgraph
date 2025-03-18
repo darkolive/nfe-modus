@@ -92,9 +92,6 @@ type <User> {
 	passwordHash
 	passwordSalt
 	recoveryEmail
-	mfaEnabled
-	mfaMethod
-	mfaSecret
 	failedLoginAttempts
 	lastFailedLogin
 	lockedUntil

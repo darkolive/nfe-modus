@@ -21,7 +21,11 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
+import {
+  startRegistration,
+  startAuthentication,
+} from "@simplewebauthn/browser";
+import { detectDeviceInfo } from "@/app/components/webauthn-client";
 
 export default function SignIn() {
   const router = useRouter();
@@ -30,7 +34,7 @@ export default function SignIn() {
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [step, setStep] = useState<
-    "email" | "otp" | "auth-options" | "register-info"
+    "email" | "otp" | "auth-options" | "register-info" | "reset-sent"
   >("email");
   const [authTab, setAuthTab] = useState<"webauthn" | "passphrase">("webauthn");
   const [isLoading, setIsLoading] = useState(false);
@@ -43,12 +47,11 @@ export default function SignIn() {
   // Check if WebAuthn is supported when component mounts
   useEffect(() => {
     // Check for WebAuthn support
-    const isWebAuthnSupported = 
-      typeof window !== 'undefined' && 
-      window.PublicKeyCredential !== undefined;
-    
+    const isWebAuthnSupported =
+      typeof window !== "undefined" && window.PublicKeyCredential !== undefined;
+
     setWebAuthnSupported(isWebAuthnSupported);
-    
+
     // If WebAuthn is not supported, default to passphrase
     if (!isWebAuthnSupported) {
       setAuthTab("passphrase");
@@ -206,9 +209,10 @@ export default function SignIn() {
 
       // Registration successful - user is now signed in
       toast.success("Success", {
-        description: "Passkey set up successfully! Setting up a backup passphrase is required.",
+        description:
+          "Passkey set up successfully! Setting up a backup passphrase is required.",
       });
-      
+
       setIsLoading(false);
       router.push("/auth/setup-passphrase");
       return;
@@ -242,7 +246,9 @@ export default function SignIn() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to get registration options");
+        throw new Error(
+          errorData.error || "Failed to get registration options"
+        );
       }
 
       const options = await response.json();
@@ -277,7 +283,7 @@ export default function SignIn() {
         toast.success("Passkey added successfully", {
           description: "You can now sign in using your passkey",
         });
-        
+
         // Login with the new credential
         handleWebAuthnLogin();
       } else {
@@ -285,7 +291,9 @@ export default function SignIn() {
       }
     } catch (error) {
       console.error("Error adding WebAuthn credential:", error);
-      setError(error instanceof Error ? error.message : "Failed to add passkey");
+      setError(
+        error instanceof Error ? error.message : "Failed to add passkey"
+      );
       toast.error("Failed to add passkey", {
         description:
           error instanceof Error ? error.message : "Unknown error occurred",
@@ -318,9 +326,10 @@ export default function SignIn() {
       if (options.isRegistrationFlow) {
         // This is actually a registration flow
         try {
-          // Start the registration process
+          // Start the registration process with device detection
           const registrationResult = await startRegistration(options);
-          
+          const deviceInfo = detectDeviceInfo();
+
           // Verify the registration with the server
           const verificationResponse = await fetch(
             "/api/auth/webauthn/register-verify",
@@ -331,6 +340,10 @@ export default function SignIn() {
                 email,
                 response: registrationResult,
                 name: firstName || email.split("@")[0],
+                deviceName: deviceInfo.deviceName,
+                deviceType: deviceInfo.deviceType,
+                isBiometric: deviceInfo.isBiometric,
+                deviceInfo: deviceInfo.deviceInfo,
               }),
             }
           );
@@ -345,14 +358,16 @@ export default function SignIn() {
           toast.success("Success", {
             description: "Passkey set up successfully! You're now signed in.",
           });
-          
+
           setIsLoading(false);
           router.push("/dashboard");
           return;
         } catch (regError) {
           console.error("Error during WebAuthn registration:", regError);
-          setError(regError instanceof Error ? regError.message : "Registration failed");
-          
+          setError(
+            regError instanceof Error ? regError.message : "Registration failed"
+          );
+
           // Fall back to passphrase login
           setAuthTab("passphrase");
           setIsLoading(false);
@@ -361,12 +376,16 @@ export default function SignIn() {
       }
 
       if (options.error) {
-        if (options.error === "No security keys found" && options.canRegisterWebAuthn) {
+        if (
+          options.error === "No security keys found" &&
+          options.canRegisterWebAuthn
+        ) {
           setError("");
           setAuthTab("passphrase");
           setIsLoading(false);
           toast.info("No passkey found", {
-            description: "You don't have a passkey set up yet. Please log in with your passphrase first.",
+            description:
+              "You don't have a passkey set up yet. Please log in with your passphrase first.",
             duration: 5000,
           });
           return;
@@ -498,7 +517,8 @@ export default function SignIn() {
         // Use a timeout to ensure the toast appears after navigation
         setTimeout(() => {
           toast.info("Add passkey to your account?", {
-            description: "Would you like to add a passkey for easier login next time?",
+            description:
+              "Would you like to add a passkey for easier login next time?",
             action: {
               label: "Add passkey",
               onClick: () => {
@@ -509,7 +529,7 @@ export default function SignIn() {
           });
         }, 1000);
       }
-      
+
       router.push("/dashboard");
     } catch (error) {
       console.error("Passphrase login error:", error);
@@ -517,6 +537,52 @@ export default function SignIn() {
       toast.error("Error", {
         description:
           (error as Error).message || "Login failed. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleForgotPassphrase() {
+    if (!email) {
+      setStep("email");
+      toast.info("Email required", {
+        description: "Please enter your email to reset your passphrase",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
+
+    try {
+      // Send a passphrase reset email
+      const response = await fetch("/api/auth/passphrase/reset-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to request passphrase reset");
+      }
+
+      toast.success("Reset link sent", {
+        description: "Check your email for a link to reset your passphrase",
+      });
+
+      // Show reset confirmation message instead of redirecting
+      setStep("reset-sent");
+    } catch (error) {
+      console.error("Error requesting passphrase reset:", error);
+      setError(
+        (error as Error).message || "Failed to request passphrase reset"
+      );
+      toast.error("Error", {
+        description:
+          (error as Error).message || "Failed to request passphrase reset",
       });
     } finally {
       setIsLoading(false);
@@ -536,6 +602,7 @@ export default function SignIn() {
             {step === "otp" && "Verify Email"}
             {step === "register-info" && "Complete Registration"}
             {step === "auth-options" && (isNewUser ? "Register" : "Sign In")}
+            {step === "reset-sent" && "Check Your Email"}
           </CardTitle>
           <CardDescription>
             {step === "email" &&
@@ -547,6 +614,7 @@ export default function SignIn() {
               (isNewUser
                 ? "Choose how you want to secure your account"
                 : "Choose how you want to sign in")}
+            {step === "reset-sent" && "We've sent a reset link to your email"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -700,7 +768,8 @@ export default function SignIn() {
                   </p>
                   {!webAuthnSupported && (
                     <p className="text-sm text-amber-600">
-                      Your browser or device doesn&apos;t support passkeys. Please use the passphrase option instead.
+                      Your browser or device doesn&apos;t support passkeys.
+                      Please use the passphrase option instead.
                     </p>
                   )}
                   {error && <p className="text-sm text-red-500">{error}</p>}
@@ -723,7 +792,8 @@ export default function SignIn() {
                   </Button>
                   {isNewUser && (
                     <p className="text-xs text-muted-foreground">
-                      Note: After registering with a passkey, you&apos;ll also set up a backup passphrase.
+                      Note: After registering with a passkey, you&apos;ll also
+                      set up a backup passphrase.
                     </p>
                   )}
                 </div>
@@ -788,6 +858,17 @@ export default function SignIn() {
                     >
                       {isLoading ? "Signing in..." : "Sign in with Passphrase"}
                     </Button>
+                    <div className="text-center mt-2">
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="px-0 text-sm"
+                        onClick={handleForgotPassphrase}
+                        disabled={isLoading}
+                      >
+                        Forgot Passphrase?
+                      </Button>
+                    </div>
                   </div>
                 )}
               </TabsContent>
@@ -803,6 +884,27 @@ export default function SignIn() {
                 Back
               </Button>
             </Tabs>
+          )}
+
+          {step === "reset-sent" && (
+            <div className="space-y-4">
+              <p>
+                We&apos;ve sent a passphrase reset link to{" "}
+                <strong>{email}</strong>. Please check your email and click on
+                the link to reset your passphrase.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                If you don&apos;t receive an email within a few minutes, check
+                your spam folder or try again.
+              </p>
+              <Button
+                onClick={() => setStep("email")}
+                className="w-full"
+                variant="outline"
+              >
+                Back to Sign In
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

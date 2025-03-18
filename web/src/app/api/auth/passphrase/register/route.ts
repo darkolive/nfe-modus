@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { DgraphClient } from "@/lib/dgraph";
-import { hashPassphrase } from "@/lib/crypto";
+import { hashPassphrase } from "@/lib/passphrase";
 import { cookies } from "next/headers";
 import { SignJWT } from "jose";
 import logger from "@/lib/logger";
@@ -50,8 +50,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         ip,
         error: result.error.errors,
       });
+      
+      // Get the specific error messages from Zod
+      const errorMessages = result.error.errors.map(err => `${err.path.join('.')}: ${err.message}`).join(', ');
+      
       return NextResponse.json(
-        { error: "Invalid request data" },
+        { error: `Validation failed: ${errorMessages}` },
         { status: 400 }
       );
     }

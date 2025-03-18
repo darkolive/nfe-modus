@@ -1,6 +1,6 @@
 import { DgraphClient } from "@/lib/dgraph";
 import { inMemoryStore } from "@/lib/in-memory-store";
-import { hashPassphrase } from "@/lib/crypto";
+import { hashPassphrase } from "@/lib/passphrase";
 import logger from "@/lib/logger";
 import { verifySessionToken } from "@/lib/jwt";
 import { type NextRequest } from "next/server";

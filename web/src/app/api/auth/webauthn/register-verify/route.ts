@@ -32,6 +32,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     const body = await request.json();
     const response = body.response as RegistrationResponseJSON;
 
+    // Log the entire request body for debugging
+    logger.debug("WebAuthn registration verification request body", {
+      action: "WEBAUTHN_REGISTER_DEBUG_REQUEST",
+      deviceName: body.deviceName,
+      deviceType: body.deviceType,
+      isBiometric: body.isBiometric,
+      hasDeviceInfo: !!body.deviceInfo,
+      responseTransports: response.response.transports,
+    });
+
     // Extract the email from the cookie
     const cookieStore = await cookies();
     const emailVerificationCookie = cookieStore.get("emailVerification");
@@ -163,9 +173,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         passwordHash: string | null;
         passwordSalt: string | null;
         recoveryEmail: string | null;
-        mfaEnabled: boolean;
-        mfaMethod: string | null;
-        mfaSecret: string | null;
         failedLoginAttempts: number;
         lastFailedLogin: string | null;
         lockedUntil: string | null;
@@ -279,9 +286,6 @@ export async function POST(request: Request): Promise<NextResponse> {
           passwordHash: null,
           passwordSalt: null,
           recoveryEmail: null,
-          mfaEnabled: false,
-          mfaMethod: null,
-          mfaSecret: null,
           failedLoginAttempts: 0,
           lastFailedLogin: null,
           lockedUntil: null,

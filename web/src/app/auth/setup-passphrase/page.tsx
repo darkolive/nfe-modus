@@ -49,8 +49,8 @@ export default function SetupPassphrase() {
     setError("");
 
     // Validate passphrase
-    if (passphrase.length < 8) {
-      setError("Passphrase must be at least 8 characters");
+    if (passphrase.length < 12) {
+      setError("Passphrase must be at least 12 characters");
       setIsLoading(false);
       return;
     }
@@ -128,6 +128,9 @@ export default function SetupPassphrase() {
                 onChange={(e) => setPassphrase(e.target.value)}
                 required
               />
+              <p className="text-xs text-muted-foreground">
+                Your passphrase must be at least 12 characters long for security.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirmPassphrase">Confirm Passphrase</Label>

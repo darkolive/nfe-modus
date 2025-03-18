@@ -6,14 +6,15 @@ export interface CredentialData {
   credentialPublicKey: string;
   counter: number;
   transports: AuthenticatorTransportFuture[];
-  lastUsed: Date | null;
-  createdAt: Date;
-  updatedAt: Date | null;
-  name: string;
+  lastUsed: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+  deviceName: string;  
   isBiometric: boolean;
   deviceType: string;
   deviceInfo: string;
   userId: string;
+  "dgraph.type": string;  
 }
 
 export interface Challenge {
@@ -34,7 +35,6 @@ export interface UserData {
   status: 'active' | 'inactive' | 'locked';
   hasWebAuthn: boolean;
   hasPassphrase: boolean;
-  roles: string[];
   mfaEnabled: boolean;
   failedLoginAttempts: number;
   lastFailedLogin: Date | null;

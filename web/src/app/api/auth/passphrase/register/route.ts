@@ -102,7 +102,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       did,
       verified: true,
       emailVerified: verifiedEmail.timestamp,
-      dateJoined: now,
+      dateJoined: now.toISOString(),
       lastAuthTime: null,
       status: "active" as const,
       hasWebAuthn: false,
@@ -111,14 +111,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       passwordSalt: salt,
       recoveryEmail: recoveryEmail || null,
       mfaEnabled: false,
-      mfaMethod: undefined,
-      mfaSecret: undefined,
+      mfaMethod: null,
+      mfaSecret: null,
       failedLoginAttempts: 0,
       lastFailedLogin: null,
       lockedUntil: null,
       roles: [],
-      createdAt: now,
-      updatedAt: now
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      devices: []
     };
 
     // Create user

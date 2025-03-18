@@ -98,294 +98,367 @@ export async function POST(request: Request): Promise<NextResponse> {
       action: "WEBAUTHN_REGISTER_EMAIL_VERIFICATION",
     });
 
-    // First, ensure system roles exist
-    await dgraphClient.initializeSystemRoles();
-    
-    // Get the registered role UID
-    const registeredRole = await dgraphClient.getRoleByName("registered");
-    
-    if (!registeredRole) {
-      logger.error("Registered role not found", {
-        action: "WEBAUTHN_REGISTER_CREATE_USER_ERROR",
-        error: "Registered role not found"
-      });
-      // Continue anyway, we'll create the user without a role
-    }
-
-    // Check if user already exists
-    const existingUser = await dgraphClient.getUserByEmail(email);
-    let userId: string;
-    
-    // If user exists but doesn't have WebAuthn credentials yet, we'll update them
-    if (existingUser) {
-      logger.info("User already exists, updating WebAuthn status", {
-        action: "WEBAUTHN_REGISTER_USER_EXISTS",
+    try {
+      // First, ensure system roles exist
+      logger.info(`Starting system role initialization for WebAuthn registration: ${email}`, {
+        action: "WEBAUTHN_REGISTER_INIT_ROLES_START",
         email,
-        userId: existingUser.did
+        requestId: uuidv4() // Add a unique identifier to track this specific request
       });
       
-      userId = existingUser.did;
+      await dgraphClient.initializeSystemRoles();
       
-      // Ensure the user has the registered role
-      if (registeredRole) {
-        const userRoles = await dgraphClient.getUserRoles(userId);
-        if (!userRoles.includes("registered")) {
-          try {
-            await dgraphClient.assignRoleToUser(userId, registeredRole.uid);
-            logger.info("Registered role assigned to existing user", {
-              action: "WEBAUTHN_REGISTER_ROLE_ASSIGNED",
+      // Get the registered role UID
+      logger.info(`Getting registered role for WebAuthn registration: ${email}`, {
+        action: "WEBAUTHN_REGISTER_GET_ROLE",
+        email
+      });
+      
+      const registeredRole = await dgraphClient.getRoleByName("registered");
+      
+      if (!registeredRole) {
+        logger.error("Registered role not found", {
+          action: "WEBAUTHN_REGISTER_CREATE_USER_ERROR",
+          error: "Registered role not found"
+        });
+        // Continue anyway, we'll create the user without a role
+      } else {
+        logger.info(`Found registered role for WebAuthn registration: ${email}`, {
+          action: "WEBAUTHN_REGISTER_ROLE_FOUND",
+          email,
+          roleId: registeredRole.uid
+        });
+      }
+      
+      // Check if user already exists
+      const existingUser = await dgraphClient.getUserByEmail(email);
+      let userId: string;
+      let newUser: {
+        email: string;
+        did: string;
+        name: string | null;
+        verified: boolean;
+        emailVerified: string;
+        dateJoined: string;
+        lastAuthTime: string | null;
+        status: 'active' | 'inactive' | 'suspended';
+        hasWebAuthn: boolean;
+        hasPassphrase: boolean;
+        passwordHash: string | null;
+        passwordSalt: string | null;
+        recoveryEmail: string | null;
+        mfaEnabled: boolean;
+        mfaMethod: string | null;
+        mfaSecret: string | null;
+        failedLoginAttempts: number;
+        lastFailedLogin: string | null;
+        lockedUntil: string | null;
+        roles: { uid: string }[];
+        createdAt: string;
+        updatedAt: string | null;
+        devices: { uid: string }[];
+      };
+      
+      if (existingUser) {
+        logger.info("User already exists, updating WebAuthn status", {
+          action: "WEBAUTHN_REGISTER_USER_EXISTS",
+          email,
+          userId: existingUser.did
+        });
+        
+        userId = existingUser.did;
+        
+        // Ensure the user has the registered role
+        if (registeredRole) {
+          const userRoles = await dgraphClient.getUserRoles(userId);
+          if (!userRoles.includes("registered")) {
+            try {
+              await dgraphClient.assignRoleToUser(userId, registeredRole.uid);
+              logger.info("Registered role assigned to existing user", {
+                action: "WEBAUTHN_REGISTER_ROLE_ASSIGNED",
+                email,
+                userId,
+                roleId: registeredRole.uid
+              });
+            } catch (roleError) {
+              logger.warn("Failed to assign registered role to existing user", {
+                action: "WEBAUTHN_REGISTER_ROLE_ASSIGN_ERROR",
+                email,
+                userId,
+                error: roleError instanceof Error ? roleError.message : String(roleError)
+              });
+            }
+          } else {
+            logger.info("User already has registered role", {
+              action: "WEBAUTHN_REGISTER_HAS_ROLE",
               email,
-              userId,
-              roleId: registeredRole.uid
-            });
-          } catch (roleError) {
-            logger.warn("Failed to assign registered role to existing user", {
-              action: "WEBAUTHN_REGISTER_ROLE_ASSIGN_ERROR",
-              email,
-              userId,
-              error: roleError instanceof Error ? roleError.message : String(roleError)
+              userId
             });
           }
         }
-      }
-    } else {
-      // Create a new user if one doesn't exist
-      logger.info(`Creating new user for WebAuthn registration: ${email}`, {
-        action: "WEBAUTHN_REGISTER_CREATE_USER",
-        email
-      });
-
-      try {
-        // First, ensure system roles exist
-        await dgraphClient.initializeSystemRoles();
-        
-        // Get the registered role UID
-        const registeredRole = await dgraphClient.getRoleByName("registered");
-        
-        if (!registeredRole) {
-          logger.error("Registered role not found", {
-            action: "WEBAUTHN_REGISTER_CREATE_USER_ERROR",
-            error: "Registered role not found"
-          });
-          // Continue anyway, we'll create the user without a role
-        }
-        
+      } else {
         // Log the user data we're about to create
-        logger.debug("Creating user with data:");
+        logger.debug(`Preparing user data for WebAuthn registration: ${email}`, {
+          action: "WEBAUTHN_REGISTER_PREPARE_USER_DATA",
+          email
+        });
         
         // Create a new user
         const now = new Date();
-        const newUser: {
-          email: string;
-          did: string;
-          name: string | null;
-          verified: boolean;
-          emailVerified: string | null;
-          dateJoined: Date;
-          lastAuthTime: string | null;
-          status: "active" | "inactive" | "suspended";
-          hasWebAuthn: boolean;
-          hasPassphrase: boolean;
-          passwordHash?: string | null;
-          passwordSalt?: string | null;
-          recoveryEmail?: string | null;
-          mfaEnabled: boolean;
-          mfaMethod: string | undefined;
-          mfaSecret: string | undefined;
-          failedLoginAttempts: number;
-          lastFailedLogin: string | null;
-          lockedUntil: string | null;
-          roles: Array<{ uid: string }>;
-          createdAt: Date;
-          updatedAt: Date | null;
-        } = {
+        newUser = {
           email,
           did: uuidv4(), // Generate a DID for the user
           name: null,
           verified: true,
           emailVerified: now.toISOString(),
-          dateJoined: now,
+          dateJoined: now.toISOString(),
           lastAuthTime: null,
-          status: "active",
+          status: "active" as const,
           hasWebAuthn: true,
           hasPassphrase: false,
+          passwordHash: null,
+          passwordSalt: null,
+          recoveryEmail: null,
           mfaEnabled: false,
-          mfaMethod: undefined,
-          mfaSecret: undefined,
+          mfaMethod: null,
+          mfaSecret: null,
           failedLoginAttempts: 0,
           lastFailedLogin: null,
           lockedUntil: null,
           roles: registeredRole ? [{ uid: registeredRole.uid }] : [],
-          createdAt: now,
-          updatedAt: null
+          createdAt: now.toISOString(),
+          updatedAt: null,
+          devices: []
         };
-
-        // Create the user in Dgraph
-        userId = await dgraphClient.createUser(newUser);
         
-        logger.info("User created successfully", {
-          action: "WEBAUTHN_REGISTER_USER_CREATED",
+        logger.info(`Creating user in Dgraph for WebAuthn registration: ${email}`, {
+          action: "WEBAUTHN_REGISTER_CREATE_USER_START",
           email,
-          userId
+          hasRole: registeredRole ? true : false,
+          roleId: registeredRole ? registeredRole.uid : null,
+          roles: newUser.roles
         });
-
-        // Check if user was created successfully
-        if (!userId) {
-          logger.error(`Failed to create user for WebAuthn registration: ${email}`, {
+        
+        try {
+          userId = await dgraphClient.createUser(newUser);
+          
+          logger.info("User created successfully", {
+            action: "WEBAUTHN_REGISTER_USER_CREATED",
+            email,
+            userId,
+            roles: newUser.roles.length
+          });
+  
+          // Check if user was created successfully
+          if (!userId) {
+            logger.error(`Failed to create user for WebAuthn registration: ${email}`, {
+              action: "WEBAUTHN_REGISTER_CREATE_USER_ERROR",
+              error: "User ID is empty"
+            });
+            return NextResponse.json(
+              { error: "Failed to create user" },
+              { status: 500 }
+            );
+          }
+        } catch (createError) {
+          logger.error("Error creating user for WebAuthn registration", {
             action: "WEBAUTHN_REGISTER_CREATE_USER_ERROR",
-            error: "User ID is empty"
+            email,
+            error: createError instanceof Error ? createError.message : "Unknown error"
           });
           return NextResponse.json(
             { error: "Failed to create user" },
             { status: 500 }
           );
         }
-
-        // If we found the registered role but couldn't add it during user creation,
-        // assign it now using the assignRoleToUser method
-        if (registeredRole && newUser.roles.length === 0) {
-          try {
-            await dgraphClient.assignRoleToUser(userId, registeredRole.uid);
-            logger.info("Registered role assigned to user", {
-              action: "WEBAUTHN_REGISTER_ROLE_ASSIGNED",
-              email,
-              userId,
-              roleId: registeredRole.uid
-            });
-          } catch (roleError) {
-            // Log the error but continue with the registration process
-            logger.warn("Failed to assign registered role to user", {
-              action: "WEBAUTHN_REGISTER_ROLE_ASSIGN_ERROR",
-              email,
-              userId,
-              error: roleError instanceof Error ? roleError.message : String(roleError)
-            });
-          }
-        }
-
-        // Update the challenge with the new user ID
-        // Since we can't update the challenge directly, we'll create a new one
-        await dgraphClient.deleteChallenge(email);
-        await dgraphClient.storeChallenge({
-          userId,
+      }
+      
+      try {
+        // Get the latest challenge for verification
+        const currentChallenge = await dgraphClient.getChallenge(email);
+        
+        logger.debug("Retrieved challenge for verification", {
+          action: "WEBAUTHN_REGISTER_GET_CHALLENGE",
           email,
-          challenge: challenge.challenge
+          userId,
+          hasChallenge: currentChallenge ? true : false,
+          challengeFormat: currentChallenge ? currentChallenge.challenge : "no challenge"
         });
         
-        // Get the updated challenge
-        const updatedChallenge = await dgraphClient.getChallenge(email);
-        if (!updatedChallenge) {
-          logger.error("Failed to update challenge with new user ID", {
-            action: "WEBAUTHN_REGISTER_CHALLENGE_UPDATE_ERROR",
+        if (!currentChallenge) {
+          logger.error("Challenge not found after user creation", {
+            action: "WEBAUTHN_REGISTER_CHALLENGE_ERROR",
             email,
             userId
           });
           return NextResponse.json(
-            { error: "Failed to update challenge" },
+            { error: "Challenge not found" },
+            { status: 400 }
+          );
+        }
+        
+        // Verify the registration response
+        // The SimpleWebAuthn library expects the challenge in base64url format
+        try {
+          // Log the challenge for debugging purposes
+          logger.debug("Challenge for verification", {
+            action: "WEBAUTHN_REGISTER_CHALLENGE_DEBUG",
+            email,
+            userId,
+            storedChallenge: currentChallenge.challenge
+          });
+
+          const verification = await verifyRegistrationResponse({
+            response,
+            expectedChallenge: currentChallenge.challenge, // Already in base64url format
+            expectedOrigin: origin,
+            expectedRPID: rpID,
+            requireUserVerification: true
+          });
+
+          if (!verification.verified) {
+            logger.error("WebAuthn registration verification failed", {
+              action: "WEBAUTHN_REGISTER_VERIFICATION_ERROR",
+              email,
+              userId
+            });
+            return NextResponse.json(
+              { error: "Verification failed" },
+              { status: 400 }
+            );
+          }
+          
+          // Delete the previous challenge
+          await dgraphClient.deleteChallenge(email);
+          logger.debug("Challenge deleted after successful verification", {
+            action: "WEBAUTHN_REGISTER_DELETE_CHALLENGE",
+            email,
+            userId
+          });
+
+          // Store the credential
+          const currentTime = new Date();
+          
+          // Check if verification.registrationInfo is defined
+          if (!verification.registrationInfo) {
+            logger.error("Registration info missing from verification", {
+              action: "WEBAUTHN_REGISTER_INFO_ERROR",
+              email,
+              userId
+            });
+            return NextResponse.json(
+              { error: "Registration info missing" },
+              { status: 400 }
+            );
+          }
+          
+          const credentialData: CredentialData = {
+            uid: "_:credential", // Use a named blank node for better tracking
+            credentialID: Buffer.from(verification.registrationInfo.credential.id).toString('base64url'),
+            credentialPublicKey: Buffer.from(verification.registrationInfo.credential.publicKey).toString('base64url'),
+            counter: verification.registrationInfo.credential.counter,
+            transports: response.response.transports || [],
+            lastUsed: currentTime.toISOString(),
+            deviceName: body.deviceName || "Unknown device",
+            isBiometric: body.isBiometric || false,
+            deviceType: body.deviceType || "unknown",
+            deviceInfo: body.deviceInfo || "",
+            userId: userId,
+            createdAt: currentTime.toISOString(),
+            updatedAt: null,
+            "dgraph.type": "Device"
+          };
+
+          logger.debug("Creating WebAuthn credential", {
+            action: "WEBAUTHN_REGISTER_CREATE_CREDENTIAL",
+            email,
+            userId,
+            credentialData: JSON.stringify({
+              ...credentialData,
+              credentialPublicKey: "[REDACTED]" // Don't log the actual key
+            })
+          });
+
+          try {
+            const credentialId = await dgraphClient.storeCredential(credentialData);
+            
+            // Check if credential was stored correctly
+            if (!credentialId) {
+              logger.error("Failed to store credential", {
+                action: "WEBAUTHN_REGISTER_STORE_CREDENTIAL_ERROR",
+                email,
+                userId
+              });
+              return NextResponse.json(
+                { error: "Failed to store credential" },
+                { status: 500 }
+              );
+            }
+            
+            logger.info("WebAuthn credential stored successfully", {
+              action: "WEBAUTHN_REGISTER_CREDENTIAL_STORED",
+              email,
+              userId,
+              credentialId
+            });
+            
+            // Return success
+            return NextResponse.json({
+              verified: true,
+              registrationInfo: {
+                fmt: verification.registrationInfo.fmt,
+                counter: verification.registrationInfo.credential.counter,
+                credentialID: credentialData.credentialID,
+                credentialDeviceType: verification.registrationInfo.credentialDeviceType,
+                credentialBackedUp: verification.registrationInfo.credentialBackedUp,
+                aaguid: verification.registrationInfo.aaguid || ""
+              }
+            });
+          } catch (credentialError) {
+            logger.error("Error storing WebAuthn credential", {
+              action: "WEBAUTHN_REGISTER_CREDENTIAL_ERROR",
+              email,
+              userId,
+              error: credentialError instanceof Error ? credentialError.message : String(credentialError)
+            });
+            
+            return NextResponse.json(
+              { error: "Failed to store WebAuthn credential" },
+              { status: 500 }
+            );
+          }
+        } catch (error) {
+          // Handle errors during registration verification
+          logger.error("Error during WebAuthn registration verification", {
+            action: "WEBAUTHN_REGISTER_VERIFICATION_ERROR",
+            email,
+            error: error instanceof Error ? error.message : "Unknown error",
+            stack: error instanceof Error ? error.stack : undefined
+          });
+          
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : "Verification failed" },
             { status: 500 }
           );
         }
       } catch (error) {
-        logger.error("Error creating user for WebAuthn registration", {
-          action: "WEBAUTHN_REGISTER_CREATE_USER_ERROR",
+        logger.error("Error during WebAuthn registration verification", {
+          action: "WEBAUTHN_REGISTER_ERROR",
           email,
           error: error instanceof Error ? error.message : "Unknown error"
         });
         return NextResponse.json(
-          { error: "Failed to create user" },
+          { error: error instanceof Error ? error.message : "Unknown error" },
           { status: 500 }
         );
       }
-    }
-
-    try {
-      // Get the latest challenge for verification
-      const currentChallenge = await dgraphClient.getChallenge(email);
-      if (!currentChallenge) {
-        logger.error("Challenge not found after user creation", {
-          action: "WEBAUTHN_REGISTER_CHALLENGE_ERROR",
-          email,
-          userId
-        });
-        return NextResponse.json(
-          { error: "Challenge not found" },
-          { status: 400 }
-        );
-      }
-
-      // Verify the registration response
-      const verification = await verifyRegistrationResponse({
-        response,
-        expectedChallenge: currentChallenge.challenge,
-        expectedOrigin: origin,
-        expectedRPID: rpID,
-        requireUserVerification: true
-      });
-
-      if (!verification.verified) {
-        logger.error("WebAuthn registration verification failed", {
-          action: "WEBAUTHN_REGISTER_VERIFICATION_ERROR",
-          email,
-          userId
-        });
-        return NextResponse.json(
-          { error: "Verification failed" },
-          { status: 400 }
-        );
-      }
-
-      // Store the credential
-      const { registrationInfo } = verification;
-      
-      if (!registrationInfo) {
-        logger.error("Registration info missing from verification", {
-          action: "WEBAUTHN_REGISTER_INFO_ERROR",
-          email,
-          userId
-        });
-        return NextResponse.json(
-          { error: "Registration info missing" },
-          { status: 400 }
-        );
-      }
-
-      // Get the credential data
-      const now = new Date();
-      const credentialData: CredentialData = {
-        uid: "", // This will be assigned by Dgraph
-        credentialID: Buffer.from(registrationInfo.credential.id).toString('base64url'),
-        credentialPublicKey: Buffer.from(registrationInfo.credential.publicKey).toString('base64url'),
-        counter: registrationInfo.credential.counter,
-        transports: response.response.transports || [],
-        lastUsed: now,
-        name: body.deviceName || "Unknown device",
-        isBiometric: body.isBiometric || false,
-        deviceType: body.deviceType || "unknown",
-        deviceInfo: body.deviceInfo || "",
-        userId,
-        createdAt: now,
-        updatedAt: null
-      };
-
-      // Store the credential in Dgraph
-      await dgraphClient.storeCredential(credentialData);
-
-      // Update the user's hasWebAuthn flag
-      await dgraphClient.updateUserHasWebAuthn(userId, true);
-
-      // Delete the challenge
-      await dgraphClient.deleteChallenge(email);
-
-      // Return success
-      return NextResponse.json({ success: true });
     } catch (error) {
-      logger.error("Error during WebAuthn registration verification", {
-        action: "WEBAUTHN_REGISTER_ERROR",
-        email,
+      logger.error("Unexpected error in WebAuthn registration verification", {
+        action: "WEBAUTHN_REGISTER_UNEXPECTED_ERROR",
         error: error instanceof Error ? error.message : "Unknown error"
       });
       return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Unknown error" },
+        { error: "An unexpected error occurred" },
         { status: 500 }
       );
     }

@@ -3,7 +3,7 @@ import { inMemoryStore } from "@/lib/in-memory-store";
 import logger from "@/lib/logger";
 
 const COOKIE_NAME = "auth_otp";
-const VERIFIED_EMAIL_COOKIE_NAME = "verified-email";
+const VERIFIED_EMAIL_COOKIE_NAME = "emailVerification";
 
 export async function POST(request: Request) {
   try {

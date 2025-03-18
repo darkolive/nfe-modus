@@ -75,18 +75,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get user's credentials
+    // Get user credentials
     const credentials = await client.getUserCredentials(user.id);
     if (!credentials || credentials.length === 0) {
-      logger.warn(`No WebAuthn credentials found for user: ${email}`, {
+      logger.warn(`No credentials found for user: ${email}`, {
         action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
         ip,
-        error: "No credentials found",
+        userId: user.id,
+        error: "No credentials",
       });
       return NextResponse.json(
         {
-          error: "No credentials found",
-          details: "No WebAuthn credentials found for this user",
+          error: "No security keys found",
+          details: "Please register a security key first",
         },
         { status: 400 }
       );
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
     });
 
     // Generate authentication options
-    const options = await generateAuthenticationOptions(email);
+    const options = await generateAuthenticationOptions(email, credentials);
 
     // Check if options contains an error
     if ("error" in options) {

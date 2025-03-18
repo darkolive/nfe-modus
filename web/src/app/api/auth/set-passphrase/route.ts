@@ -82,7 +82,7 @@ export async function POST(request: Request) {
         did: crypto.randomUUID(),
         verified: true,
         emailVerified: new Date(verification.timestamp).toISOString(),
-        dateJoined: new Date(),
+        dateJoined: new Date().toISOString(),
         lastAuthTime: new Date().toISOString(),
         status: "active",
         hasWebAuthn: false,
@@ -91,14 +91,15 @@ export async function POST(request: Request) {
         passwordSalt: salt,
         recoveryEmail: null,
         mfaEnabled: false,
-        mfaMethod: undefined,
-        mfaSecret: undefined,
+        mfaMethod: null,
+        mfaSecret: null,
         failedLoginAttempts: 0,
         lastFailedLogin: null,
         lockedUntil: null,
         roles: [], // Empty array of role objects
-        createdAt: new Date(),
-        updatedAt: new Date()
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        devices: []
       });
 
       // Get the newly created user

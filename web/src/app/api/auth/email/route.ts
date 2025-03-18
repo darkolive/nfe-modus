@@ -29,20 +29,24 @@ export async function POST(request: Request) {
           name: "",
           verified: false,
           emailVerified: null,
-          dateJoined: new Date(),
+          dateJoined: new Date().toISOString(),
           lastAuthTime: null,
           status: "active",
           hasWebAuthn: false,
           hasPassphrase: false,
           mfaEnabled: false,
-          mfaMethod: undefined,
-          mfaSecret: undefined,
+          mfaMethod: null,
+          mfaSecret: null,
           failedLoginAttempts: 0,
           lastFailedLogin: null,
           lockedUntil: null,
           roles: [],
-          createdAt: new Date(),
-          updatedAt: new Date()
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          devices: [],
+          passwordHash: null,
+          passwordSalt: null,
+          recoveryEmail: null
         });
       } catch (createError) {
         logger.error("Error creating user:", createError);

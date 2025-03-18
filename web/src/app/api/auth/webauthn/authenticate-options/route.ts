@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
       email,
       ip,
     });
-    const options = await generateAuthenticationOptions(email);
+    const options = await generateAuthenticationOptions(email, credentials);
     logger.info("WebAuthn authentication options generated", {
       action: "WEBAUTHN_AUTHENTICATION_OPTIONS_SUCCESS",
       email,

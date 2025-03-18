@@ -1,8 +1,9 @@
-import { verifyOtpData } from "@/lib/utils";
+import { verifyOtpData, createEmailVerificationData } from "@/lib/utils";
 import { inMemoryStore } from "@/lib/in-memory-store";
 import logger from "@/lib/logger";
 
 const COOKIE_NAME = "auth_otp";
+const VERIFIED_EMAIL_COOKIE_NAME = "verified-email";
 
 export async function POST(request: Request) {
   try {
@@ -48,14 +49,20 @@ export async function POST(request: Request) {
     
     logger.debug(`Email verification stored in memory for: ${email}`);
 
-    // Clear the OTP cookie and return success
-    const response = new Response(JSON.stringify({ success: true }), {
-      headers: {
-        "Content-Type": "application/json",
-        // Set cookie with past expiry to delete it
-        "Set-Cookie": `${COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
-      },
-    });
+    // Create an encrypted verified-email cookie that will be used for the next stage validation
+    // Set to expire in 5 minutes
+    const FIVE_MINUTES = 5 * 60;
+    const encryptedEmailVerification = await createEmailVerificationData(email);
+    const verifiedEmailCookie = `${VERIFIED_EMAIL_COOKIE_NAME}=${encryptedEmailVerification}; HttpOnly; Path=/; Max-Age=${FIVE_MINUTES}; SameSite=Strict${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+    const clearOtpCookie = `${COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+
+    // Clear the OTP cookie and return success with the verified email cookie
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+    headers.append("Set-Cookie", clearOtpCookie);
+    headers.append("Set-Cookie", verifiedEmailCookie);
+
+    const response = new Response(JSON.stringify({ success: true }), { headers });
 
     return response;
   } catch (error) {

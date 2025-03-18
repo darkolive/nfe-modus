@@ -248,6 +248,26 @@ export async function POST(request: Request): Promise<NextResponse> {
             userId,
             roles: newUser.roles.length
           });
+
+          // Explicitly assign the registered role to the user
+          if (registeredRole && userId) {
+            try {
+              await dgraphClient.assignRoleToUser(userId, registeredRole.uid);
+              logger.info("Explicitly assigned registered role to new user", {
+                action: "WEBAUTHN_REGISTER_ROLE_ASSIGNED_EXPLICITLY",
+                email,
+                userId,
+                roleId: registeredRole.uid
+              });
+            } catch (roleError) {
+              logger.warn("Failed to explicitly assign registered role to new user", {
+                action: "WEBAUTHN_REGISTER_EXPLICIT_ROLE_ASSIGN_ERROR",
+                email,
+                userId,
+                error: roleError instanceof Error ? roleError.message : String(roleError)
+              });
+            }
+          }
   
           // Check if user was created successfully
           if (!userId) {

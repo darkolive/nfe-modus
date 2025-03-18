@@ -173,7 +173,37 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
 
     // Assign default role
-    await dgraphClient.assignRoleToUser(userId, "user");
+    try {
+      const registeredRoleId = await dgraphClient.getRoleId("registered");
+      if (registeredRoleId) {
+        logger.debug("Starting role assignment process", {
+          action: "PASSPHRASE_REGISTER_ROLE_ASSIGNMENT",
+          userId,
+          roleId: registeredRoleId,
+          roleName: "registered"
+        });
+        await dgraphClient.assignRoleToUser(userId, registeredRoleId);
+        logger.info("Successfully assigned role to user", {
+          action: "PASSPHRASE_REGISTER_ROLE_ASSIGNMENT_SUCCESS",
+          userId,
+          roleId: registeredRoleId,
+          roleName: "registered"
+        });
+      } else {
+        logger.error("Could not find the 'registered' role ID", {
+          action: "PASSPHRASE_REGISTER_ROLE_ID_NOT_FOUND",
+          userId
+        });
+      }
+    } catch (roleError) {
+      logger.error("Error assigning role to user during passphrase registration", {
+        action: "PASSPHRASE_REGISTER_ROLE_ASSIGNMENT_ERROR",
+        userId,
+        roleName: "registered",
+        error: roleError instanceof Error ? roleError.message : String(roleError)
+      });
+      // Continue without throwing, as the user is created but just missing the role
+    }
 
     return NextResponse.json({
       success: true,

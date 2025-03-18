@@ -9,8 +9,8 @@ import logger from "@/lib/logger";
  */
 export async function GET(req: NextRequest) {
   try {
-    // Get the session token from cookies
-    const sessionToken = req.cookies.get("session-token")?.value;
+    // Get the session token from cookies (check both token names we use)
+    const sessionToken = req.cookies.get("session-token")?.value || req.cookies.get("token")?.value;
 
     // If no token, user is not authenticated
     if (!sessionToken) {

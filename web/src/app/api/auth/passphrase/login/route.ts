@@ -111,44 +111,23 @@ export async function POST(request: Request) {
 
     logger.info(`Passphrase verified for user: ${user.id}`);
 
-    // Reset failed login attempts
-    await dgraphClient.resetFailedLoginAttempts(user.id!);
-
-    // Create session token
+    // Generate and return JWT token
     const token = await new SignJWT({
       sub: user.id,
-      email: user.email
+      email: user.email,
+      name: user.name,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24 hour expiry
     })
       .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("24h")
-      .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+      .sign(new TextEncoder().encode(process.env.JWT_SECRET!));
 
-    // Create response with session cookie
-    const response = NextResponse.json({
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        verified: user.verified,
-        emailVerified: user.emailVerified,
-        hasWebAuthn: user.hasWebAuthn,
-        hasPassphrase: user.hasPassphrase,
-        mfaEnabled: user.mfaEnabled,
-        roles: user.roles
-      }
-    });
+    // Reset failed login attempts
+    if (user.failedLoginAttempts) {
+      await dgraphClient.resetFailedLoginAttempts(user.id!);
+    }
 
-    // Set session cookie
-    response.cookies.set("session", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 // 24 hours
-    });
-
-    // Log successful login
+    // Create audit log entry for successful login
     await dgraphClient.createAuditLog({
       userId: user.id!,
       action: "LOGIN_SUCCESS",
@@ -160,6 +139,26 @@ export async function POST(request: Request) {
       metadata: {
         deviceInfo
       }
+    });
+
+    // Set JWT as a cookie
+    const response = NextResponse.json({
+      success: true,
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      canAddWebAuthn: !user.hasWebAuthn // Include whether user can add WebAuthn
+    });
+
+    // Set cookie with HttpOnly for security
+    response.cookies.set({
+      name: "session-token",
+      value: token,
+      httpOnly: true,
+      maxAge: 60 * 60 * 24, // 1 day
+      path: "/",
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production"
     });
 
     return response;

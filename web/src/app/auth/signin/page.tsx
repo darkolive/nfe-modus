@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,6 +38,22 @@ export default function SignIn() {
   const [otpValue, setOtpValue] = useState("");
   const [isNewUser, setIsNewUser] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true);
+
+  // Check if WebAuthn is supported when component mounts
+  useEffect(() => {
+    // Check for WebAuthn support
+    const isWebAuthnSupported = 
+      typeof window !== 'undefined' && 
+      window.PublicKeyCredential !== undefined;
+    
+    setWebAuthnSupported(isWebAuthnSupported);
+    
+    // If WebAuthn is not supported, default to passphrase
+    if (!isWebAuthnSupported) {
+      setAuthTab("passphrase");
+    }
+  }, []);
 
   async function handleEmailSubmit(e: FormEvent) {
     e.preventDefault();
@@ -189,27 +205,90 @@ export default function SignIn() {
       }
 
       // Registration successful - user is now signed in
-      toast.success("Registration successful", {
-        description: "You have successfully registered and signed in",
+      toast.success("Success", {
+        description: "Passkey set up successfully! Setting up a backup passphrase is required.",
+      });
+      
+      setIsLoading(false);
+      router.push("/auth/setup-passphrase");
+      return;
+    } catch (error) {
+      console.error("Error during WebAuthn registration:", error);
+      setError(error instanceof Error ? error.message : "Registration failed");
+      toast.error("Registration failed", {
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+      setIsLoading(false);
+    }
+  }
+
+  async function handleAddWebAuthnCredential() {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      // Check if WebAuthn is supported
+      if (!window.PublicKeyCredential) {
+        throw new Error("WebAuthn is not supported in this browser");
+      }
+
+      // Get add credential options from the server
+      const response = await fetch("/api/auth/webauthn/add-credential", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", // Include cookies (for session token)
       });
 
-      // If the server indicates the user should set up a passphrase, redirect to that page
-      if (verification.shouldSetupPassphrase) {
-        router.push("/auth/setup-passphrase");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to get registration options");
+      }
+
+      const options = await response.json();
+
+      // Start the registration process
+      const result = await startRegistration(options);
+
+      // Send the credential to the server
+      const verificationResponse = await fetch(
+        "/api/auth/webauthn/add-credential-verify",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include", // Include cookies (for session token)
+          body: JSON.stringify({
+            email,
+            response: result,
+            deviceName: "Browser Key",
+            deviceInfo: navigator.userAgent || "Unknown Browser",
+          }),
+        }
+      );
+
+      if (!verificationResponse.ok) {
+        const errorData = await verificationResponse.json();
+        throw new Error(errorData.error || "Failed to verify credential");
+      }
+
+      const verification = await verificationResponse.json();
+
+      if (verification.success) {
+        toast.success("Passkey added successfully", {
+          description: "You can now sign in using your passkey",
+        });
+        
+        // Login with the new credential
+        handleWebAuthnLogin();
       } else {
-        // Otherwise, redirect to home page or dashboard
-        router.push("/");
+        throw new Error("Failed to add passkey");
       }
     } catch (error) {
-      console.error("WebAuthn registration error:", error);
-      setError(
-        (error as Error).message ||
-          "WebAuthn registration failed. Please try again."
-      );
-      toast.error("Error", {
+      console.error("Error adding WebAuthn credential:", error);
+      setError(error instanceof Error ? error.message : "Failed to add passkey");
+      toast.error("Failed to add passkey", {
         description:
-          (error as Error).message ||
-          "WebAuthn registration failed. Please try again.",
+          error instanceof Error ? error.message : "Unknown error occurred",
       });
     } finally {
       setIsLoading(false);
@@ -235,7 +314,63 @@ export default function SignIn() {
 
       const options = await response.json();
 
+      // Check if this is a registration flow (user doesn't have credentials)
+      if (options.isRegistrationFlow) {
+        // This is actually a registration flow
+        try {
+          // Start the registration process
+          const registrationResult = await startRegistration(options);
+          
+          // Verify the registration with the server
+          const verificationResponse = await fetch(
+            "/api/auth/webauthn/register-verify",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email,
+                response: registrationResult,
+                name: firstName || email.split("@")[0],
+              }),
+            }
+          );
+
+          const verification = await verificationResponse.json();
+
+          if (verification.error) {
+            throw new Error(verification.error);
+          }
+
+          // Registration successful - user is now signed in
+          toast.success("Success", {
+            description: "Passkey set up successfully! You're now signed in.",
+          });
+          
+          setIsLoading(false);
+          router.push("/dashboard");
+          return;
+        } catch (regError) {
+          console.error("Error during WebAuthn registration:", regError);
+          setError(regError instanceof Error ? regError.message : "Registration failed");
+          
+          // Fall back to passphrase login
+          setAuthTab("passphrase");
+          setIsLoading(false);
+          return;
+        }
+      }
+
       if (options.error) {
+        if (options.error === "No security keys found" && options.canRegisterWebAuthn) {
+          setError("");
+          setAuthTab("passphrase");
+          setIsLoading(false);
+          toast.info("No passkey found", {
+            description: "You don't have a passkey set up yet. Please log in with your passphrase first.",
+            duration: 5000,
+          });
+          return;
+        }
         throw new Error(options.error);
       }
 
@@ -328,32 +463,54 @@ export default function SignIn() {
   }
 
   async function handlePassphraseLogin() {
-    setIsLoading(true);
+    // Prevent submission if passphrase is empty
+    if (!passphrase) {
+      setError("Passphrase is required");
+      return;
+    }
+
+    // Clear any previous errors
     setError("");
+    setIsLoading(true);
 
     try {
-      // Sign in with passphrase
       const response = await fetch("/api/auth/passphrase/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          passphrase,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, passphrase }),
       });
 
-      const result = await response.json();
+      const data = await response.json();
 
-      if (result.error) {
-        throw new Error(result.error);
+      if (!response.ok) {
+        throw new Error(data.error || "Login failed. Please try again.");
       }
 
-      // Redirect to dashboard or home page
       toast.success("Success", {
-        description: "You have successfully signed in",
+        description: "You have successfully signed in!",
       });
 
-      router.push("/");
+      // If the user doesn't have WebAuthn set up,
+      // prompt them to add it immediately after logging in
+      if (data.canAddWebAuthn) {
+        // Use a timeout to ensure the toast appears after navigation
+        setTimeout(() => {
+          toast.info("Add passkey to your account?", {
+            description: "Would you like to add a passkey for easier login next time?",
+            action: {
+              label: "Add passkey",
+              onClick: () => {
+                handleAddWebAuthnCredential();
+              },
+            },
+            duration: 10000, // Show this toast for longer
+          });
+        }, 1000);
+      }
+      
+      router.push("/dashboard");
     } catch (error) {
       console.error("Passphrase login error:", error);
       setError((error as Error).message || "Login failed. Please try again.");
@@ -521,14 +678,16 @@ export default function SignIn() {
 
           {step === "auth-options" && (
             <Tabs
-              defaultValue="webauthn"
+              defaultValue={webAuthnSupported ? "webauthn" : "passphrase"}
               onValueChange={(value) =>
                 setAuthTab(value as "webauthn" | "passphrase")
               }
               className="space-y-4"
             >
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="webauthn">Passkey</TabsTrigger>
+                <TabsTrigger value="webauthn" disabled={!webAuthnSupported}>
+                  {webAuthnSupported ? "Passkey" : "Passkey (Not Supported)"}
+                </TabsTrigger>
                 <TabsTrigger value="passphrase">Passphrase</TabsTrigger>
               </TabsList>
 
@@ -539,6 +698,11 @@ export default function SignIn() {
                       ? "Register with a passkey for passwordless authentication. This uses your device's biometrics or security features."
                       : "Sign in with your passkey."}
                   </p>
+                  {!webAuthnSupported && (
+                    <p className="text-sm text-amber-600">
+                      Your browser or device doesn&apos;t support passkeys. Please use the passphrase option instead.
+                    </p>
+                  )}
                   {error && <p className="text-sm text-red-500">{error}</p>}
                   <Button
                     onClick={
@@ -547,7 +711,7 @@ export default function SignIn() {
                         : handleWebAuthnLogin
                     }
                     className="w-full"
-                    disabled={isLoading}
+                    disabled={isLoading || !webAuthnSupported}
                   >
                     {isLoading
                       ? isNewUser
@@ -557,6 +721,11 @@ export default function SignIn() {
                         ? "Register with Passkey"
                         : "Sign in with Passkey"}
                   </Button>
+                  {isNewUser && (
+                    <p className="text-xs text-muted-foreground">
+                      Note: After registering with a passkey, you&apos;ll also set up a backup passphrase.
+                    </p>
+                  )}
                 </div>
               </TabsContent>
 

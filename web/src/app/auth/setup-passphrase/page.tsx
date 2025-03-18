@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,6 +21,27 @@ export default function SetupPassphrase() {
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [allowSkip, setAllowSkip] = useState(false);
+
+  // Check if the user already has WebAuthn set up
+  useEffect(() => {
+    async function checkAuthStatus() {
+      try {
+        const response = await fetch("/api/auth/user-status");
+        const data = await response.json();
+        
+        // If the user wasn't registered with WebAuthn, they can skip this step
+        // Otherwise, this is a required fallback authentication method
+        setAllowSkip(!data.hasWebAuthn);
+      } catch (error) {
+        console.error("Error checking authentication status:", error);
+        // Default to not allowing skip if we can't determine status
+        setAllowSkip(false);
+      }
+    }
+    
+    checkAuthStatus();
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -88,10 +109,11 @@ export default function SetupPassphrase() {
     <div className="flex min-h-screen items-center justify-center">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Set Up Passphrase</CardTitle>
+          <CardTitle>Set Up Fallback Passphrase</CardTitle>
           <CardDescription>
-            Setting up a passphrase allows you to sign in from devices that
-            don&apos;t support passkeys.
+            Setting up a passphrase is important as it allows you to sign in from devices 
+            that don&apos;t support passkeys. Without this, you may be locked out of your 
+            account when using a different device.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -122,13 +144,22 @@ export default function SetupPassphrase() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Setting up..." : "Set Up Passphrase"}
             </Button>
+            
+            {!allowSkip && (
+              <p className="text-sm text-amber-600 mt-2">
+                Since you registered using a passkey, setting up a fallback passphrase is required 
+                to ensure you can access your account from any device.
+              </p>
+            )}
           </form>
         </CardContent>
-        <CardFooter>
-          <Button variant="ghost" onClick={handleSkip} className="w-full">
-            Skip for now
-          </Button>
-        </CardFooter>
+        {allowSkip && (
+          <CardFooter>
+            <Button variant="ghost" onClick={handleSkip} className="w-full">
+              Skip for now
+            </Button>
+          </CardFooter>
+        )}
       </Card>
     </div>
   );

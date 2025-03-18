@@ -59,38 +59,70 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if user has WebAuthn enabled
-    if (!user.hasWebAuthn) {
-      logger.warn(`WebAuthn not enabled for user: ${email}`, {
-        action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
-        ip,
-        error: "WebAuthn not enabled",
-      });
-      return NextResponse.json(
-        {
-          error: "WebAuthn not enabled",
-          details: "Please set up WebAuthn first",
-        },
-        { status: 400 }
-      );
-    }
-
-    // Get user credentials
+    // Get WebAuthn credentials
     const credentials = await client.getUserCredentials(user.id);
     if (!credentials || credentials.length === 0) {
-      logger.warn(`No credentials found for user: ${email}`, {
-        action: "WEBAUTHN_LOGIN_OPTIONS_ERROR",
+      logger.info(`No credentials found for user: ${email}, generating registration options`, {
+        action: "WEBAUTHN_REGISTRATION_REDIRECT",
         ip,
         userId: user.id,
-        error: "No credentials",
       });
-      return NextResponse.json(
-        {
-          error: "No security keys found",
-          details: "Please register a security key first",
-        },
-        { status: 400 }
-      );
+      
+      // Since user has no credentials, generate registration options instead
+      try {
+        // Import the function directly to avoid any potential circular imports
+        const { generateRegistrationOptions } = await import("@/lib/webauthn");
+        
+        // Log user details for debugging
+        logger.debug(`User details for registration: ${JSON.stringify({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          hasUser: !!user
+        })}`);
+        
+        // Get the user's existing WebAuthn credentials (if any)
+        const existingCredentials = await client.getUserCredentials(user.id) || [];
+        
+        // Log credentials for debugging
+        logger.debug(`Existing credentials: ${JSON.stringify({
+          count: existingCredentials.length,
+          credentialIds: existingCredentials.map(c => c.credentialID?.substring(0, 10) + '...')
+        })}`);
+        
+        // Generate registration options with proper parameters
+        const regOptions = await generateRegistrationOptions(
+          email,
+          existingCredentials,
+          user.name || email.split("@")[0]
+        );
+        
+        // Return the registration options with a flag indicating this is registration
+        return NextResponse.json({
+          ...regOptions,
+          isRegistrationFlow: true, // Flag to indicate this is a registration flow
+          userId: user.id // Include the user ID for reference
+        });
+      } catch (error) {
+        logger.error(`Error generating registration options: ${error}`, {
+          action: "WEBAUTHN_REGISTRATION_OPTIONS_ERROR",
+          ip,
+          userId: user.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        
+        // Fall back to the original behavior if registration options generation fails
+        return NextResponse.json(
+          {
+            error: "No security keys found",
+            details: "No WebAuthn credentials found for this account",
+            canRegisterWebAuthn: true,
+            userId: user.id,
+            hasPassphrase: user.hasPassphrase,
+          },
+          { status: 200 }
+        );
+      }
     }
 
     logger.info(`Generating WebAuthn login options for email: ${email}`, {

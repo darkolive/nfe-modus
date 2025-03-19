@@ -1,20 +1,20 @@
-# iOS Security Standards
+# NFE-Modus Security Architecture
 
-## Overview of iOS Security Framework
+## Overview of Security Framework
 
-Apple's iOS implements a comprehensive security architecture that integrates hardware, software, and services to provide maximum security while maintaining a seamless user experience. This document outlines the key ISO standards that iOS adheres to, how these standards are implemented, and what they mean for privacy and security.
+The NFE-Modus platform implements a comprehensive security architecture that protects user data while providing a seamless authentication experience. This document outlines the key security standards that our system adheres to, how these standards are implemented, and what they mean for privacy and security.
 
-## ISO Standards Implemented in iOS
+## Security Standards Implemented
 
 ### ISO/IEC 27001 - Information Security Management
 
-iOS security architecture follows the principles outlined in ISO/IEC 27001, which provides a framework for information security management systems (ISMS).
+Our security architecture follows the principles outlined in ISO/IEC 27001, which provides a framework for information security management systems (ISMS).
 
-**Implementation in iOS:**
-- Systematic approach to managing sensitive information
+**Implementation in Our System:**
+- Systematic approach to managing sensitive user information
 - Risk assessment and treatment processes
-- Regular security audits and continuous improvement
-- Comprehensive security policies covering all aspects of the device ecosystem
+- Comprehensive security policies covering all aspects of the application
+- Secure development lifecycle
 
 **Impact on Privacy and Security:**
 - Ensures a holistic approach to security rather than point solutions
@@ -25,146 +25,248 @@ iOS security architecture follows the principles outlined in ISO/IEC 27001, whic
 
 This standard focuses specifically on cloud privacy and the protection of personal data.
 
-**Implementation in iOS:**
-- Data minimization principles in iCloud services
+**Implementation in Our System:**
+- Data minimization principles in our database design
 - Transparent policies on data collection and usage
 - Strong controls for user consent
-- Clear procedures for data breach notification
+- Encryption of sensitive user data
 
 **Impact on Privacy and Security:**
-- Enhanced protection of user data stored in iCloud
+- Enhanced protection of user data stored in our database
 - Greater transparency about how personal information is handled
 - Stronger user control over their own data
 
-### ISO/IEC 15408 (Common Criteria)
+## Key Security Technologies
 
-iOS has received certification against the Common Criteria, an international standard (ISO/IEC 15408) for computer security certification.
+### Email Encryption
 
-**Implementation in iOS:**
-- Secure boot chain verification
-- Kernel integrity protection
-- Secure Enclave implementation
-- App sandboxing architecture
-
-**Impact on Privacy and Security:**
-- Independent verification of security claims
-- Assurance that security functions work as intended
-- Protection against sophisticated attack vectors
-
-## Key Security Technologies in iOS
-
-### Secure Enclave
-
-The Secure Enclave is a dedicated security subsystem integrated into Apple's chips. It's isolated from the main processor to provide an extra layer of security.
-
-**ISO Standard Alignment:** ISO/IEC 19790 (Security Requirements for Cryptographic Modules)
+Our system uses AES-256-GCM encryption to protect sensitive user information, particularly email addresses.
 
 **Implementation:**
-- Hardware-based key manager
-- Biometric data processing and storage
-- Cryptographic operations
-- Secure boot verification
+- AES-256-GCM encryption algorithm
+- Secure key management using environment variables
+- IV (Initialization Vector) and auth tag stored with encrypted data
+- Robust error handling for decryption failures
 
 **Privacy and Security Benefits:**
-- Protection of encryption keys even if the operating system is compromised
-- Secure storage of sensitive biometric data
-- Hardware-level isolation of critical security functions
+- Protection of user email addresses even if the database is compromised
+- Compliance with data protection regulations
+- Defense against data breaches
 
-### Data Protection
+### WebAuthn Authentication
 
-iOS uses a file encryption system called Data Protection that secures information by encrypting it with keys derived from the user's passcode.
-
-**ISO Standard Alignment:** ISO/IEC 18033 (Encryption algorithms)
+Our system implements the WebAuthn standard for passwordless authentication, leveraging the security capabilities of users' devices.
 
 **Implementation:**
-- Class-based protection levels for different data sensitivity
-- Hardware-accelerated AES 256-bit encryption
-- Secure key derivation and management
-- Protection against brute force attacks
-
-**Privacy and Security Benefits:**
-- Data remains encrypted even if device is physically compromised
-- Granular control over data accessibility states
-- Automatic encryption without user intervention
-
-### App Security
-
-iOS implements multiple layers of protection to ensure that apps are free of malware and haven't been tampered with.
-
-**ISO Standard Alignment:** ISO/IEC 27034 (Application security)
-
-**Implementation:**
-- Mandatory code signing
-- App Store review process
-- Runtime protection (sandboxing)
-- Entitlement restrictions
-
-**Privacy and Security Benefits:**
-- Protection against malicious applications
-- Prevention of unauthorized access to user data
-- Isolation of app data from other applications
-
-## WebAuthn and Biometric Authentication
-
-iOS fully supports the WebAuthn standard, allowing for secure passwordless authentication using device biometrics.
-
-**ISO Standard Alignment:** ISO/IEC 19794-2 (Biometric data interchange formats)
-
-**Implementation:**
-- Face ID and Touch ID integration with WebAuthn
-- Secure storage of biometric templates in Secure Enclave
-- Anti-spoofing measures
-- Attestation mechanisms
+- Challenge-response authentication protocol
+- Secure credential storage
+- Device information tracking
+- Biometric detection and verification
+- Role-based access control
 
 **Privacy and Security Benefits:**
 - Elimination of password-related vulnerabilities
-- Biometric data never leaves the device
 - Phishing-resistant authentication
 - Enhanced user experience with stronger security
+- Detailed device tracking for security auditing
 
-## Privacy Features
+## Data Storage Architecture
 
-iOS implements various privacy features that go beyond standard requirements.
+### Dgraph Database
 
-**ISO Standard Alignment:** ISO/IEC 29100 (Privacy framework)
+Our system uses Dgraph, a graph database, to store user information and relationships.
 
 **Implementation:**
-- App Tracking Transparency
-- Privacy labels on App Store
-- Intelligent Tracking Prevention in Safari
-- Approximate location sharing
-- Private relay (iCloud+)
+- Structured schema with defined types (User, Device, Role)
+- Relationship-based data model
+- Encrypted sensitive fields
+- Type-safe queries
 
 **Privacy and Security Benefits:**
-- User control over personal data sharing
-- Transparency about data collection practices
-- Reduction in cross-site tracking
-- Protection of browsing habits and location data
+- Granular access control
+- Efficient relationship traversal
+- Structured data validation
+- Protection of sensitive information
 
-## Compliance and Certification
+### User Data Structure
 
-iOS has received various certifications that demonstrate its adherence to international security standards:
+The system maintains the following user data structure:
 
-- FIPS 140-2/3 certification for cryptographic modules
-- Common Criteria Certification (ISO/IEC 15408)
-- SOC 2 Type 2 Certification for iCloud services
+```
+User {
+  uid: string
+  did: string (unique identifier)
+  email: string (encrypted)
+  name: string
+  verified: boolean
+  emailVerified: timestamp
+  dateJoined: timestamp
+  lastAuthTime: timestamp
+  status: 'active' | 'inactive' | 'locked'
+  hasWebAuthn: boolean
+  hasPassphrase: boolean
+  failedLoginAttempts: number
+  lastFailedLogin: timestamp
+  lockedUntil: timestamp
+  createdAt: timestamp
+  updatedAt: timestamp
+  roles: [Role]
+  devices: [Device]
+}
+```
 
-These certifications provide independent verification that iOS meets rigorous security requirements and follows best practices in information security management.
+**Privacy Considerations:**
+- Email addresses are always encrypted
+- Authentication status is tracked but not authentication methods
+- Failed login attempts are monitored for security
+- Timestamps provide audit trail
 
-## Implications for Enterprise Security
+### Device Information
 
-Organizations implementing iOS devices benefit from:
+For each user device, we store:
 
-- Centralized management via Mobile Device Management (MDM)
-- Separation of personal and work data
-- Remote wipe capabilities
-- Enforcement of security policies
-- Secure connectivity options (VPN, etc.)
+```
+Device {
+  uid: string
+  credentialID: string
+  credentialPublicKey: string
+  counter: number
+  transports: string[]
+  lastUsed: timestamp
+  deviceName: string
+  deviceType: string
+  isBiometric: boolean
+  deviceInfo: string
+  createdAt: timestamp
+  updatedAt: timestamp
+}
+```
 
-These features allow enterprises to meet their own ISO 27001 compliance requirements while providing a secure platform for employee productivity.
+**Security Considerations:**
+- Device fingerprinting for fraud detection
+- Biometric capability tracking
+- Usage timestamps for suspicious activity detection
+- No storage of private keys or biometric data
+
+## Authentication Flow
+
+### Registration Process
+
+1. Email verification
+   - User provides email
+   - System sends verification link
+   - Email is validated before registration proceeds
+
+2. WebAuthn credential creation
+   - Challenge generated and stored
+   - User creates credential on device
+   - Credential verified against challenge
+   - User and device information stored
+
+3. Role assignment
+   - Default "registered" role assigned
+   - Permissions attached to role
+
+**Security Measures:**
+- Challenge expiration (5 minutes)
+- Verification of origin and RP ID
+- Secure credential storage
+- Explicit role assignment
+
+### Login Process
+
+1. Email verification
+   - User provides email
+   - System looks up user by encrypted email
+
+2. WebAuthn authentication
+   - Challenge generated
+   - User authenticates with device
+   - Credential verified against stored public key
+   - Session token created
+
+**Security Measures:**
+- Counter verification to prevent replay attacks
+- Device verification
+- Secure session management
+- Failed attempt tracking
+
+## Encryption Implementation
+
+Our encryption system uses the following approach:
+
+```javascript
+// Encryption
+const iv = crypto.randomBytes(12);
+const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(key, 'base64'), iv);
+let encrypted = cipher.update(data, 'utf8', 'base64');
+encrypted += cipher.final('base64');
+const authTag = cipher.getAuthTag().toString('base64');
+return `${encrypted}:${iv.toString('base64')}:${authTag}`;
+
+// Decryption
+const [encryptedData, ivBase64, authTagBase64] = encryptedString.split(':');
+const iv = Buffer.from(ivBase64, 'base64');
+const authTag = Buffer.from(authTagBase64, 'base64');
+const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(key, 'base64'), iv);
+decipher.setAuthTag(authTag);
+let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
+decrypted += decipher.final('utf8');
+return decrypted;
+```
+
+**Security Features:**
+- GCM mode provides authentication
+- Unique IV for each encryption
+- Auth tag verification prevents tampering
+- Base64 encoding for safe storage
+
+## Audit and Logging
+
+Our system implements comprehensive logging for security events:
+
+**Implementation:**
+- Structured logging with event types
+- User and request identifiers
+- Error details for troubleshooting
+- Authentication events tracking
+- Device information logging
+
+**Security Benefits:**
+- Ability to detect suspicious patterns
+- Forensic information for incident response
+- Compliance with audit requirements
+- Performance and security monitoring
+
+## Security Best Practices
+
+The codebase follows these security best practices:
+
+1. **Environment Variable Management**
+   - Sensitive keys stored in environment variables
+   - No hardcoded secrets
+   - Separate development and production environments
+
+2. **Error Handling**
+   - Graceful failure modes
+   - Limited error information in production
+   - Detailed internal logging
+   - Safe decryption fallbacks
+
+3. **Input Validation**
+   - Request body validation
+   - Type checking
+   - Length and format restrictions
+   - Sanitization of user inputs
+
+4. **Session Management**
+   - Secure cookie settings
+   - Token-based authentication
+   - Limited session duration
+   - Secure token generation
 
 ## Conclusion
 
-iOS security is built on a foundation of internationally recognized standards and best practices. By implementing these standards at both hardware and software levels, iOS provides a comprehensive security architecture that protects user privacy while enabling powerful functionality. The adherence to ISO standards ensures that security measures are systematic, thorough, and independently verified.
+The NFE-Modus security architecture is built on a foundation of internationally recognized standards and best practices. By implementing these standards throughout our codebase, we provide a comprehensive security architecture that protects user privacy while enabling powerful functionality.
 
-As threats evolve, Apple continues to enhance iOS security while maintaining compatibility with international standards, ensuring that users and organizations can trust iOS devices with their most sensitive information.
+Our WebAuthn implementation, combined with email encryption and secure data storage, ensures that users can trust our platform with their sensitive information. As threats evolve, we continue to enhance our security measures while maintaining compatibility with international standards.

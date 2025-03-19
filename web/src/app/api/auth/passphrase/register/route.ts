@@ -43,7 +43,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await createAuditLog(dgraphClient, {
         actorId: "0", // Unknown user
         actorType: "anonymous",
-        operationType: "register",
+        operationType: "passphrase_registration",
         action: "PASSPHRASE_REGISTER_RATE_LIMIT",
         details: JSON.stringify({
           ip,
@@ -80,7 +80,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await createAuditLog(dgraphClient, {
         actorId: "0", // Unknown user
         actorType: "anonymous",
-        operationType: "register",
+        operationType: "passphrase_registration",
         action: "PASSPHRASE_REGISTER_VALIDATION_FAILED",
         details: JSON.stringify({
           errors: result.error.errors.map(e => ({ path: e.path.join('.'), message: e.message })),
@@ -143,7 +143,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await createAuditLog(dgraphClient, {
         actorId: "0", // Unknown user
         actorType: "anonymous",
-        operationType: "register",
+        operationType: "passphrase_registration",
         action: "PASSPHRASE_REGISTER_EMAIL_NOT_VERIFIED",
         details: JSON.stringify({
           email,
@@ -175,7 +175,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await createAuditLog(dgraphClient, {
         actorId: "0", // Unknown user
         actorType: "anonymous",
-        operationType: "register",
+        operationType: "passphrase_registration",
         action: "PASSPHRASE_REGISTER_VERIFICATION_EXPIRED",
         details: JSON.stringify({
           email,
@@ -204,7 +204,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await createAuditLog(dgraphClient, {
         actorId: existingUser.uid || "0",
         actorType: "user",
-        operationType: "register",
+        operationType: "passphrase_registration",
         action: "PASSPHRASE_REGISTER_USER_EXISTS",
         details: JSON.stringify({
           email,
@@ -293,7 +293,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     await createAuditLog(dgraphClient, {
       actorId: userId,
       actorType: "user",
-      operationType: "register",
+      operationType: "passphrase_registration",
       action: "PASSPHRASE_REGISTER_SUCCESS",
       details: JSON.stringify({
         method: "passphrase",
@@ -361,7 +361,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await createAuditLog(dgraphClient, {
         actorId: "0", // Unknown since registration failed
         actorType: "system",
-        operationType: "register",
+        operationType: "passphrase_registration",
         action: "PASSPHRASE_REGISTER_UNHANDLED_ERROR",
         details: JSON.stringify({
           error: error instanceof Error ? error.message : String(error)

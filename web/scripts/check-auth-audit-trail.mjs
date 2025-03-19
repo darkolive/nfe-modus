@@ -79,12 +79,16 @@ async function getAuthAuditLogs(limit = 50, days = 7, operationType = null) {
         eq(operationType, "authentication") OR 
         eq(operationType, "login") OR
         eq(operationType, "registration") OR
+        eq(operationType, "passphrase_registration") OR
+        eq(operationType, "passphrase_reset") OR
         eq(requestPath, "/api/auth/webauthn/login") OR
         eq(requestPath, "/api/auth/webauthn/login-verify") OR
         eq(requestPath, "/api/auth/webauthn/register") OR
         eq(requestPath, "/api/auth/webauthn/register-verify") OR
         eq(requestPath, "/api/auth/passphrase/login") OR
-        eq(requestPath, "/api/auth/passphrase/register")
+        eq(requestPath, "/api/auth/passphrase/register") OR
+        eq(requestPath, "/api/auth/passphrase/reset-request") OR
+        eq(requestPath, "/api/auth/passphrase/reset")
       )) {
         uid
         action
@@ -165,7 +169,7 @@ function formatDate(dateString) {
       second: '2-digit',
       hour12: false
     });
-  } catch (e) {
+  } catch {
     return dateString;
   }
 }
@@ -239,7 +243,8 @@ function formatDetails(details) {
         return `${key}: ${value}`;
       })
       .join(', ');
-  } catch (e) {
+  } catch (error) {
+    console.error("Error parsing details:", error);
     return details;
   }
 }

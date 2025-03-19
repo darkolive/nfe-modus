@@ -191,6 +191,72 @@ Device {
 - Secure session management
 - Failed attempt tracking
 
+## Audit and Logging
+
+Our system implements comprehensive audit logging for security events that complies with ISO/IEC 27001 standards:
+
+### ISO/IEC 27001 Compliant Audit Trail
+
+**Implementation:**
+- Standardized action codes for all authentication operations
+- Comprehensive event capture across the entire authentication lifecycle
+- Detailed metadata collection including IP addresses and device information
+- Consistent format for all audit events with ISO 27001 compliance flags
+- Full traceability from request initiation to completion
+
+**Authentication Events Logged:**
+
+1. **Passphrase Registration:**
+   - Success events (PASSPHRASE_REGISTER_SUCCESS)
+   - Validation failures (PASSPHRASE_REGISTER_VALIDATION_FAILED)
+   - Email verification status (PASSPHRASE_REGISTER_EMAIL_NOT_VERIFIED)
+   - Verification expiration (PASSPHRASE_REGISTER_VERIFICATION_EXPIRED)
+   - Duplicate registration attempts (PASSPHRASE_REGISTER_USER_EXISTS)
+   - Rate limiting events (PASSPHRASE_REGISTER_RATE_LIMIT)
+   - Unhandled errors (PASSPHRASE_REGISTER_UNHANDLED_ERROR)
+
+2. **Passphrase Reset:**
+   - Reset requests (PASSPHRASE_RESET_REQUEST_SUCCESS)
+   - Unknown user attempts (PASSPHRASE_RESET_REQUEST_UNKNOWN_USER)
+   - Email delivery failures (PASSPHRASE_RESET_EMAIL_FAILED)
+   - Successful resets (PASSPHRASE_RESET_SUCCESS)
+   - Invalid requests (PASSPHRASE_RESET_INVALID_REQUEST)
+   - Token validation failures (PASSPHRASE_RESET_INVALID_TOKEN)
+   - Token expiration (PASSPHRASE_RESET_EXPIRED_TOKEN)
+
+3. **WebAuthn Registration:**
+   - Registration initiation (WEBAUTHN_REGISTER_START)
+   - User creation events (WEBAUTHN_REGISTER_USER_CREATED)
+   - Role assignment (WEBAUTHN_REGISTER_ROLE_ASSIGNED)
+   - Verification success (WEBAUTHN_REGISTRATION_SUCCESS)
+   - Verification failures (WEBAUTHN_REGISTRATION_VERIFICATION_FAILURE)
+   - Credential storage (WEBAUTHN_REGISTER_CREATE_CREDENTIAL)
+
+**Data Captured in Each Log:**
+- Actor identifier and type (user ID or anonymous)
+- Operation type (registration, reset, authentication)
+- Standardized action code
+- Request metadata (path, method, status code)
+- Client IP address with forwarding detection
+- Full user agent with parsed device information
+- Timestamp with millisecond precision
+- Success/failure indicator
+- Detailed error information when applicable
+- Compliance flags (ISO27001, GDPR)
+
+**Security Benefits:**
+- Complete audit trail for security investigations
+- Evidence for compliance with regulatory requirements
+- Detection of suspicious behavior patterns
+- Forensic information for incident response
+- Performance and security monitoring
+- User activity reconstruction for dispute resolution
+
+**Cookie Management for Security:**
+- Automatic removal of verification cookies after successful operations
+- Proper cleanup of authentication artifacts
+- Reduced attack surface through minimized persistent state
+
 ## Encryption Implementation
 
 Our encryption system uses the following approach:
@@ -220,23 +286,6 @@ return decrypted;
 - Unique IV for each encryption
 - Auth tag verification prevents tampering
 - Base64 encoding for safe storage
-
-## Audit and Logging
-
-Our system implements comprehensive logging for security events:
-
-**Implementation:**
-- Structured logging with event types
-- User and request identifiers
-- Error details for troubleshooting
-- Authentication events tracking
-- Device information logging
-
-**Security Benefits:**
-- Ability to detect suspicious patterns
-- Forensic information for incident response
-- Compliance with audit requirements
-- Performance and security monitoring
 
 ## Security Best Practices
 

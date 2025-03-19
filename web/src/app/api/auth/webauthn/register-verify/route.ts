@@ -730,6 +730,9 @@ export async function POST(request: Request): Promise<NextResponse> {
               path: "/",
             });
 
+            // Clean up the email verification cookie as it's no longer needed
+            cookieStore.delete("emailVerification");
+
             // Create audit log for successful registration
             // Get request metadata for audit log
             const forwardedFor = request.headers.get("x-forwarded-for");

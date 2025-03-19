@@ -245,6 +245,9 @@ export async function POST(req: NextRequest) {
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
 
+    // Clean up the email verification cookie as it's no longer needed
+    response.cookies.delete("emailVerification");
+
     return response;
   } catch (error) {
     logger.error("Error processing passphrase reset", {

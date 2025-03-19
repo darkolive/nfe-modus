@@ -289,6 +289,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       sameSite: "lax",
     });
 
+    // Clean up the email verification cookie as it's no longer needed
+    await cookieStore.delete("emailVerification");
+
     // Log successful registration
     await createAuditLog(dgraphClient, {
       actorId: userId,

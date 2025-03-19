@@ -540,12 +540,23 @@ export async function POST(request: Request): Promise<NextResponse> {
 
           // Enhanced biometric detection based on verification result and device type
           if (verification.registrationInfo) {
-            // Check for Touch ID on Mac
+            // First, honor the client-provided value if available
+            if (body.isBiometric === true) {
+              isBiometric = true;
+              logger.debug("Using client-provided biometric flag", {
+                action: "WEBAUTHN_REGISTER_BIOMETRIC_DETECTION",
+                email,
+                userId,
+                clientProvidedValue: true
+              });
+            }
+            
+            // Check for Touch ID/Face ID on Mac
             if (detectedDeviceType === "mac" && 
                 (verification.registrationInfo.credentialDeviceType === "platform" as CredentialDeviceType || 
                  /Touch ID|TouchID|FaceID|Face ID/i.test(userAgent))) {
               isBiometric = true;
-              logger.debug("Detected Touch ID on Mac", {
+              logger.debug("Detected Touch ID/Face ID on Mac", {
                 action: "WEBAUTHN_REGISTER_BIOMETRIC_DETECTION",
                 email,
                 userId,
@@ -563,6 +574,28 @@ export async function POST(request: Request): Promise<NextResponse> {
                 userId
               });
             }
+            
+            // Additional check for authenticator attachment
+            if (response.authenticatorAttachment === "platform") {
+              isBiometric = true;
+              logger.debug("Detected platform authenticator attachment", {
+                action: "WEBAUTHN_REGISTER_BIOMETRIC_DETECTION",
+                email,
+                userId,
+                authenticatorAttachment: response.authenticatorAttachment
+              });
+            }
+            
+            // Log the final biometric detection result
+            logger.info("Biometric detection result", {
+              action: "WEBAUTHN_REGISTER_BIOMETRIC_RESULT",
+              email,
+              userId,
+              isBiometric,
+              clientProvided: body.isBiometric === true,
+              credentialDeviceType: verification.registrationInfo.credentialDeviceType,
+              authenticatorAttachment: response.authenticatorAttachment || "not provided"
+            });
           }
 
           if (!verification.verified) {
@@ -697,6 +730,47 @@ export async function POST(request: Request): Promise<NextResponse> {
               path: "/",
             });
 
+            // Create audit log for successful registration
+            // Get request metadata for audit log
+            const forwardedFor = request.headers.get("x-forwarded-for");
+            const ipAddress = forwardedFor ? forwardedFor.split(",")[0].trim() : request.headers.get("x-real-ip") || "unknown";
+            const requestMethod = request.method;
+            const requestUrl = request.url;
+            const parsedUrl = new URL(requestUrl);
+            const requestPath = parsedUrl.pathname;
+            
+            // Create audit log entry
+            await dgraphClient.createAuditLog({
+              action: "WEBAUTHN_REGISTRATION_SUCCESS",
+              actorId: userId,
+              actorType: "user",
+              resourceId: userId,
+              resourceType: "user",
+              operationType: "registration",
+              requestPath: requestPath,
+              requestMethod: requestMethod,
+              requestParams: JSON.stringify({
+                deviceType: credentialData.deviceType,
+                isBiometric: credentialData.isBiometric,
+              }),
+              responseStatus: 200,
+              clientIp: ipAddress,
+              userAgent: userAgent,
+              success: true,
+              sensitiveOperation: true,
+              complianceFlags: ["ISO27001", "GDPR"],
+              details: JSON.stringify({
+                credentialId: credentialData.credentialID,
+                deviceName: credentialData.deviceName,
+                deviceType: credentialData.deviceType,
+                isBiometric: credentialData.isBiometric,
+                fmt: verification.registrationInfo.fmt,
+                counter: verification.registrationInfo.credential.counter,
+                credentialDeviceType: verification.registrationInfo.credentialDeviceType,
+                credentialBackedUp: verification.registrationInfo.credentialBackedUp,
+              })
+            });
+
             logger.info(
               "WebAuthn credential stored successfully and user status updated",
               {
@@ -723,6 +797,35 @@ export async function POST(request: Request): Promise<NextResponse> {
               },
             });
           } catch (credentialError) {
+            // Create audit log for failed credential storage
+            const forwardedFor = request.headers.get("x-forwarded-for");
+            const ipAddress = forwardedFor ? forwardedFor.split(",")[0].trim() : request.headers.get("x-real-ip") || "unknown";
+            const requestMethod = request.method;
+            const requestUrl = request.url;
+            const parsedUrl = new URL(requestUrl);
+            const requestPath = parsedUrl.pathname;
+            
+            await dgraphClient.createAuditLog({
+              action: "WEBAUTHN_REGISTRATION_CREDENTIAL_FAILURE",
+              actorId: userId,
+              actorType: "user",
+              resourceId: userId,
+              resourceType: "user",
+              operationType: "registration",
+              requestPath: requestPath,
+              requestMethod: requestMethod,
+              responseStatus: 500,
+              clientIp: ipAddress,
+              userAgent: userAgent,
+              success: false,
+              sensitiveOperation: true,
+              complianceFlags: ["ISO27001", "GDPR"],
+              details: JSON.stringify({
+                error: credentialError instanceof Error ? credentialError.message : String(credentialError),
+                email: email
+              })
+            });
+
             logger.error("Error storing WebAuthn credential", {
               action: "WEBAUTHN_REGISTER_CREDENTIAL_ERROR",
               email,
@@ -739,6 +842,35 @@ export async function POST(request: Request): Promise<NextResponse> {
             );
           }
         } catch (error) {
+          // Create audit log for verification failure
+          const forwardedFor = request.headers.get("x-forwarded-for");
+          const ipAddress = forwardedFor ? forwardedFor.split(",")[0].trim() : request.headers.get("x-real-ip") || "unknown";
+          const requestMethod = request.method;
+          const requestUrl = request.url;
+          const parsedUrl = new URL(requestUrl);
+          const requestPath = parsedUrl.pathname;
+          
+          await dgraphClient.createAuditLog({
+            action: "WEBAUTHN_REGISTRATION_VERIFICATION_FAILURE",
+            actorId: userId || "unknown",
+            actorType: "user",
+            resourceId: userId || "unknown",
+            resourceType: "user",
+            operationType: "registration",
+            requestPath: requestPath,
+            requestMethod: requestMethod,
+            responseStatus: 500,
+            clientIp: ipAddress,
+            userAgent: userAgent,
+            success: false,
+            sensitiveOperation: true,
+            complianceFlags: ["ISO27001", "GDPR"],
+            details: JSON.stringify({
+              error: error instanceof Error ? error.message : "Unknown error",
+              email: email
+            })
+          });
+
           // Handle errors during registration verification
           logger.error("Error during WebAuthn registration verification", {
             action: "WEBAUTHN_REGISTER_VERIFICATION_ERROR",
@@ -756,6 +888,33 @@ export async function POST(request: Request): Promise<NextResponse> {
           );
         }
       } catch (error) {
+        // Create audit log for general registration error
+        const forwardedFor = request.headers.get("x-forwarded-for");
+        const ipAddress = forwardedFor ? forwardedFor.split(",")[0].trim() : request.headers.get("x-real-ip") || "unknown";
+        const requestMethod = request.method;
+        const requestUrl = request.url;
+        const parsedUrl = new URL(requestUrl);
+        const requestPath = parsedUrl.pathname;
+        
+        await dgraphClient.createAuditLog({
+          action: "WEBAUTHN_REGISTRATION_GENERAL_FAILURE",
+          actorId: "unknown",
+          actorType: "user",
+          operationType: "registration",
+          requestPath: requestPath,
+          requestMethod: requestMethod,
+          responseStatus: 500,
+          clientIp: ipAddress,
+          userAgent: userAgent,
+          success: false,
+          sensitiveOperation: true,
+          complianceFlags: ["ISO27001", "GDPR"],
+          details: JSON.stringify({
+            error: error instanceof Error ? error.message : "Unknown error",
+            email: email
+          })
+        });
+
         logger.error("Error during WebAuthn registration verification", {
           action: "WEBAUTHN_REGISTER_ERROR",
           email,

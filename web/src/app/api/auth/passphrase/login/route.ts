@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { DgraphClient } from "@/lib/dgraph";
-import { verifyPassphrase } from "@/lib/passphrase";
+import { verifyPassphrase, hashPassphrase } from "@/lib/passphrase";
 import { SignJWT } from "jose";
 import logger from "@/lib/logger";
 import { UAParser } from "ua-parser-js";
@@ -39,12 +39,33 @@ export async function POST(request: Request) {
 
     // Get user by email
     const user = await dgraphClient.getUserByEmail(email);
-    if (!user) {
+    if (!user || !user.passwordHash || !user.passwordSalt) {
+      logger.warn(`Invalid login attempt - user, hash, or salt missing for email: ${email}`);
+      
+      // Create audit log entry for failed login
+      await dgraphClient.createAuditLog({
+        actorId: "anonymous",
+        actorType: "anonymous",
+        operationType: "login",
+        action: "LOGIN_FAILED",
+        details: JSON.stringify({
+          reason: "INVALID_CREDENTIALS",
+          method: "passphrase",
+          deviceInfo,
+        }),
+        clientIp: ipAddress,
+        userAgent,
+        success: false
+      });
+
       return NextResponse.json(
         { error: "Invalid email or passphrase" },
         { status: 401 }
       );
     }
+
+    logger.debug(`User found for login: ${user.uid}, attempting to verify passphrase`);
+    logger.debug(`User has passwordHash of length: ${user.passwordHash.length}, passwordSalt of length: ${user.passwordSalt.length}`);
 
     // Check if user has passphrase set
     if (!user.hasPassphrase) {
@@ -65,7 +86,14 @@ export async function POST(request: Request) {
       }
     }
 
-    // Verify passphrase
+    // For diagnostics, log the hash that would be generated with current passphrase and salt
+    const { hash: diagnosticHash } = await hashPassphrase(passphrase, user.passwordSalt);
+    logger.debug(`Diagnostic hash with current input: hash length=${diagnosticHash.length}, prefix=${diagnosticHash.substring(0, 5)}...`);
+    
+    if (user.passwordHash.substring(0, 5) !== diagnosticHash.substring(0, 5)) {
+      logger.warn(`Hash prefix mismatch: stored=${user.passwordHash.substring(0, 5)}, computed=${diagnosticHash.substring(0, 5)}`);
+    }
+
     const isValid = await verifyPassphrase(
       passphrase,
       user.passwordHash!,
@@ -73,6 +101,7 @@ export async function POST(request: Request) {
     );
 
     if (!isValid) {
+      logger.warn(`Invalid passphrase for user: ${user.uid}`);
       // Increment failed login attempts
       const failedAttempts = (user.failedLoginAttempts || 0) + 1;
       let lockedUntil: Date | undefined;

@@ -8,6 +8,9 @@ import { z } from "zod";
 import { registrationRateLimiter } from "@/lib/rate-limiter";
 import { generateDid } from "@/lib/did";
 import { inMemoryStore } from "@/lib/in-memory-store";
+import { getClientIp } from "@/lib/utils";
+import { UAParser } from "ua-parser-js";
+import { createAuditLog } from "@/lib/audit";
 
 const dgraphClient = new DgraphClient();
 
@@ -20,11 +23,11 @@ const registerSchema = z.object({
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const ip =
-      request.headers.get("x-forwarded-for") ||
-      request.headers.get("x-real-ip") ||
-      "unknown";
+    // Get client IP and user agent using our utility function
+    const ip = getClientIp(request);
     const userAgent = request.headers.get("user-agent") || "unknown";
+    const parser = new UAParser(userAgent);
+    const deviceInfo = parser.getResult();
 
     // Check rate limit
     try {
@@ -35,6 +38,25 @@ export async function POST(request: Request): Promise<NextResponse> {
         ip,
         error: error instanceof Error ? error.message : "Unknown error",
       });
+      
+      // Log rate limit exceeded
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown user
+        actorType: "anonymous",
+        operationType: "register",
+        action: "PASSPHRASE_REGISTER_RATE_LIMIT",
+        details: JSON.stringify({
+          ip,
+          deviceInfo
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: request.url,
+        requestMethod: request.method,
+        responseStatus: 429
+      });
+      
       return NextResponse.json(
         { error: "Too many registration attempts. Please try again later." },
         { status: 429 }
@@ -54,6 +76,24 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Get the specific error messages from Zod
       const errorMessages = result.error.errors.map(err => `${err.path.join('.')}: ${err.message}`).join(', ');
       
+      // Log validation failure
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown user
+        actorType: "anonymous",
+        operationType: "register",
+        action: "PASSPHRASE_REGISTER_VALIDATION_FAILED",
+        details: JSON.stringify({
+          errors: result.error.errors.map(e => ({ path: e.path.join('.'), message: e.message })),
+          deviceInfo
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: request.url,
+        requestMethod: request.method,
+        responseStatus: 400
+      });
+      
       return NextResponse.json(
         { error: `Validation failed: ${errorMessages}` },
         { status: 400 }
@@ -63,8 +103,60 @@ export async function POST(request: Request): Promise<NextResponse> {
     const { email, passphrase, name, recoveryEmail } = result.data;
 
     // Check if email was recently verified
-    const verifiedEmail = inMemoryStore.getEmailVerification(email);
+    let verifiedEmail = inMemoryStore.getEmailVerification(email);
+    logger.debug(`Checking email verification for registration: ${email}, found in memory: ${verifiedEmail ? 'yes' : 'no'}`);
+    
+    // If not found in memory, check for verification cookie
     if (!verifiedEmail) {
+      logger.debug(`Email verification not found in memory, checking cookies`);
+      
+      // Check if verification cookie exists
+      const cookies = request.headers.get("cookie");
+      const verificationCookie = cookies
+        ?.split(";")
+        .map((cookie) => cookie.trim())
+        .find((cookie) => cookie.startsWith(`emailVerification=`));
+      
+      if (verificationCookie) {
+        logger.debug(`Found verification cookie for registration`);
+        // We have a verification cookie, so the email was verified
+        // Create a synthetic verification
+        verifiedEmail = {
+          email,
+          timestamp: new Date().toISOString(),
+          method: 'otp'
+        };
+        
+        // Store it in memory for future use
+        inMemoryStore.storeEmailVerification(verifiedEmail);
+      }
+    }
+    
+    if (!verifiedEmail) {
+      logger.warn(`Email verification not found for registration: ${email}`);
+      
+      // Debug the current state of verified emails
+      const allVerified = inMemoryStore.getAllVerifiedEmails();
+      logger.debug(`Current verified emails in memory: ${[...allVerified.keys()].join(', ') || 'none'}`);
+      
+      // Log email verification missing
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown user
+        actorType: "anonymous",
+        operationType: "register",
+        action: "PASSPHRASE_REGISTER_EMAIL_NOT_VERIFIED",
+        details: JSON.stringify({
+          email,
+          deviceInfo
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: request.url,
+        requestMethod: request.method,
+        responseStatus: 400
+      });
+      
       return NextResponse.json(
         { error: "Email not verified" },
         { status: 400 }
@@ -78,6 +170,27 @@ export async function POST(request: Request): Promise<NextResponse> {
     
     if (verificationTime < fiveMinutesAgo) {
       inMemoryStore.deleteEmailVerification(email);
+      
+      // Log verification expired
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown user
+        actorType: "anonymous",
+        operationType: "register",
+        action: "PASSPHRASE_REGISTER_VERIFICATION_EXPIRED",
+        details: JSON.stringify({
+          email,
+          verificationTime: verificationTime.toISOString(),
+          expirationTime: fiveMinutesAgo.toISOString(),
+          deviceInfo
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: request.url,
+        requestMethod: request.method,
+        responseStatus: 400
+      });
+      
       return NextResponse.json(
         { error: "Email verification expired" },
         { status: 400 }
@@ -87,6 +200,24 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Check if user already exists
     const existingUser = await dgraphClient.getUserByEmail(email);
     if (existingUser) {
+      // Log duplicate user registration attempt
+      await createAuditLog(dgraphClient, {
+        actorId: existingUser.uid || "0",
+        actorType: "user",
+        operationType: "register",
+        action: "PASSPHRASE_REGISTER_USER_EXISTS",
+        details: JSON.stringify({
+          email,
+          deviceInfo
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: request.url,
+        requestMethod: request.method,
+        responseStatus: 400
+      });
+      
       return NextResponse.json(
         { error: "User already exists" },
         { status: 400 }
@@ -159,7 +290,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
 
     // Log successful registration
-    await dgraphClient.createAuditLog({
+    await createAuditLog(dgraphClient, {
       actorId: userId,
       actorType: "user",
       operationType: "register",
@@ -168,10 +299,14 @@ export async function POST(request: Request): Promise<NextResponse> {
         method: "passphrase",
         hasRecoveryEmail: !!recoveryEmail,
         verificationMethod: verifiedEmail.method,
+        deviceInfo
       }),
       clientIp: ip,
       userAgent,
       success: true,
+      requestPath: request.url,
+      requestMethod: request.method,
+      responseStatus: 200
     });
 
     // Assign default role
@@ -220,6 +355,30 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
   } catch (error) {
     logger.error("Error in passphrase registration:", error);
+    
+    // Attempt to log the error even if registration failed
+    try {
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown since registration failed
+        actorType: "system",
+        operationType: "register",
+        action: "PASSPHRASE_REGISTER_UNHANDLED_ERROR",
+        details: JSON.stringify({
+          error: error instanceof Error ? error.message : String(error)
+        }),
+        clientIp: getClientIp(request),
+        userAgent: request.headers.get("user-agent") || "Unknown",
+        success: false,
+        requestPath: request.url,
+        requestMethod: request.method,
+        responseStatus: 500
+      });
+    } catch (auditError) {
+      logger.error("Failed to log registration error", {
+        error: auditError instanceof Error ? auditError.message : String(auditError)
+      });
+    }
+    
     return NextResponse.json(
       { error: "An error occurred during registration" },
       { status: 500 }

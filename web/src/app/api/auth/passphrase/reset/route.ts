@@ -4,6 +4,9 @@ import logger from "@/lib/logger";
 import { inMemoryStore } from "@/lib/in-memory-store";
 import { hashPassphrase } from "@/lib/passphrase";
 import { createSessionToken } from "@/lib/jwt";
+import { getClientIp } from "@/lib/utils";
+import { UAParser } from "ua-parser-js";
+import { createAuditLog } from "@/lib/audit";
 
 const dgraphClient = new DgraphClient();
 
@@ -16,7 +19,31 @@ export async function POST(req: NextRequest) {
     // Get token and passphrase from request body
     const { token, passphrase } = await req.json();
 
+    // Get client IP and user agent for audit logging
+    const ip = getClientIp(req);
+    const userAgent = req.headers.get("user-agent") || "Unknown";
+    const parser = new UAParser(userAgent);
+    const deviceInfo = parser.getResult();
+
     if (!token || !passphrase) {
+      // Log invalid request
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown user
+        actorType: "anonymous",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_INVALID_REQUEST",
+        details: JSON.stringify({
+          missingFields: !token ? "token" : "passphrase",
+          deviceInfo
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 400
+      });
+
       return NextResponse.json(
         { error: "Token and passphrase are required" },
         { status: 400 }
@@ -25,6 +52,24 @@ export async function POST(req: NextRequest) {
 
     // Validate passphrase
     if (passphrase.length < 8) {
+      // Log invalid passphrase
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown at this point
+        actorType: "anonymous",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_INVALID_PASSPHRASE",
+        details: JSON.stringify({
+          reason: "Passphrase too short",
+          deviceInfo
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 400
+      });
+
       return NextResponse.json(
         { error: "Passphrase must be at least 8 characters" },
         { status: 400 }
@@ -36,6 +81,24 @@ export async function POST(req: NextRequest) {
     
     if (!resetData) {
       logger.info("Invalid reset token used", { token });
+      
+      // Log invalid token
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown at this point
+        actorType: "anonymous",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_INVALID_TOKEN",
+        details: JSON.stringify({
+          token: token.substring(0, 8) + "..." // Only log first few chars for security
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 400
+      });
+
       return NextResponse.json(
         { error: "Invalid or expired token" },
         { status: 400 }
@@ -49,6 +112,25 @@ export async function POST(req: NextRequest) {
       inMemoryStore.delete(`passphrase-reset:${token}`);
       
       logger.info("Expired reset token used", { token });
+      
+      // Log expired token
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown at this point
+        actorType: "anonymous",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_EXPIRED_TOKEN",
+        details: JSON.stringify({
+          token: token.substring(0, 8) + "...", // Only log first few chars
+          expired: expiresAt.toISOString()
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 400
+      });
+
       return NextResponse.json(
         { error: "Reset link has expired" },
         { status: 400 }
@@ -61,6 +143,23 @@ export async function POST(req: NextRequest) {
     const user = await dgraphClient.getUserByEmail(email);
     
     if (!user) {
+      // Log user not found
+      await createAuditLog(dgraphClient, {
+        actorId: "0",
+        actorType: "anonymous",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_USER_NOT_FOUND",
+        details: JSON.stringify({
+          email
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 404
+      });
+
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
@@ -74,11 +173,49 @@ export async function POST(req: NextRequest) {
     try {
       await dgraphClient.updateUserPassphrase(user.uid, hash, salt);
       logger.info("Passphrase reset successful", { userId: user.uid });
+      
+      // Log successful reset
+      await createAuditLog(dgraphClient, {
+        actorId: user.uid,
+        actorType: "user",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_SUCCESS",
+        details: JSON.stringify({
+          email,
+          deviceInfo,
+          hasPassphrase: true
+        }),
+        clientIp: ip,
+        userAgent,
+        success: true,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 200
+      });
     } catch (updateError) {
       logger.error("Failed to update user passphrase", {
         userId: user.uid,
         error: updateError instanceof Error ? updateError.message : String(updateError)
       });
+      
+      // Log failed update
+      await createAuditLog(dgraphClient, {
+        actorId: user.uid,
+        actorType: "user",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_UPDATE_FAILED",
+        details: JSON.stringify({
+          email,
+          error: updateError instanceof Error ? updateError.message : String(updateError)
+        }),
+        clientIp: ip,
+        userAgent,
+        success: false,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 500
+      });
+
       return NextResponse.json(
         { error: "Failed to update passphrase" },
         { status: 500 }
@@ -113,6 +250,30 @@ export async function POST(req: NextRequest) {
     logger.error("Error processing passphrase reset", {
       error: error instanceof Error ? error.message : String(error)
     });
+    
+    // Log unhandled error
+    try {
+      await createAuditLog(dgraphClient, {
+        actorId: "0", // Unknown since we couldn't process the request
+        actorType: "system",
+        operationType: "reset",
+        action: "PASSPHRASE_RESET_UNHANDLED_ERROR",
+        details: JSON.stringify({
+          error: error instanceof Error ? error.message : String(error)
+        }),
+        clientIp: getClientIp(req),
+        userAgent: req.headers.get("user-agent") || "Unknown",
+        success: false,
+        requestPath: req.nextUrl.pathname,
+        requestMethod: req.method,
+        responseStatus: 500
+      });
+    } catch (auditError) {
+      logger.error("Failed to log reset error", {
+        error: auditError instanceof Error ? auditError.message : String(auditError)
+      });
+    }
+
     return NextResponse.json(
       { error: "Failed to reset passphrase" },
       { status: 500 }

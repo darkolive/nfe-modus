@@ -14,8 +14,8 @@ async function updateSchema() {
   
   try {
     console.log('Reading schema file...');
-    // Read from project root directory
-    const schemaPath = path.resolve(process.cwd(), '..', 'schema.dgraph');
+    // Read schema file from project root directory
+    const schemaPath = path.resolve(process.cwd(), 'schema.dgraph');
     const schema = fs.readFileSync(schemaPath, 'utf8');
     
     console.log('Updating schema in Dgraph...');

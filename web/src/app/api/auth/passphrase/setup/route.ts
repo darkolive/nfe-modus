@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         );
       }
-      userId = user.id;
+      userId = user.uid;
     }
     
     // Update the user with the passphrase hash and salt

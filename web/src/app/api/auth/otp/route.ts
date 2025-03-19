@@ -55,8 +55,8 @@ export async function POST(request: Request) {
       if (base64OTP !== storedOtp) {
         const dgraph = new DgraphClient();
         const user = await dgraph.getUserByEmail(storedEmail);
-        if (user?.id) {
-          await dgraph.incrementFailedLoginAttempts(user.id);
+        if (user?.uid) {
+          await dgraph.incrementFailedLoginAttempts(user.uid);
         }
         return NextResponse.json(
           { error: "Invalid verification code" },
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (user.id && await dgraph.isAccountLocked(user.id)) {
+      if (user.uid && await dgraph.isAccountLocked(user.uid)) {
         return NextResponse.json(
           { error: "Account is locked. Please try again later." },
           { status: 403 }
@@ -93,8 +93,8 @@ export async function POST(request: Request) {
       }
 
       // Reset failed login attempts if user exists
-      if (user.id) {
-        await dgraph.resetFailedLoginAttempts(user.id);
+      if (user.uid) {
+        await dgraph.resetFailedLoginAttempts(user.uid);
       }
 
       // Store verified email in memory for passphrase setup

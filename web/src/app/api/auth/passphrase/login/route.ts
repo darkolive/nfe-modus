@@ -82,25 +82,24 @@ export async function POST(request: Request) {
         lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
       }
 
-      await dgraphClient.incrementFailedLoginAttempts(user.id!);
+      await dgraphClient.incrementFailedLoginAttempts(user.uid!);
 
       // Log the failed login attempt
       await dgraphClient.createAuditLog({
-        userId: user.id!,
+        actorId: user.uid!,
+        actorType: "user",
+        operationType: "login",
         action: "LOGIN_FAILED",
         details: JSON.stringify({
           method: "passphrase",
           reason: "Invalid passphrase",
           failedAttempts,
-          lockedUntil: lockedUntil?.toISOString()
-        }),
-        ipAddress,
-        userAgent,
-        metadata: {
+          lockedUntil: lockedUntil?.toISOString(),
           deviceInfo,
-          failedAttempts,
-          lockedUntil: lockedUntil?.toISOString()
-        }
+        }),
+        clientIp: ipAddress,
+        userAgent,
+        success: false
       });
 
       return NextResponse.json(
@@ -109,11 +108,11 @@ export async function POST(request: Request) {
       );
     }
 
-    logger.info(`Passphrase verified for user: ${user.id}`);
+    logger.info(`Passphrase verified for user: ${user.uid}`);
 
     // Generate and return JWT token
     const token = await new SignJWT({
-      sub: user.id,
+      sub: user.uid,
       email: user.email,
       name: user.name,
       iat: Math.floor(Date.now() / 1000),
@@ -124,27 +123,28 @@ export async function POST(request: Request) {
 
     // Reset failed login attempts
     if (user.failedLoginAttempts) {
-      await dgraphClient.resetFailedLoginAttempts(user.id!);
+      await dgraphClient.resetFailedLoginAttempts(user.uid!);
     }
 
     // Create audit log entry for successful login
     await dgraphClient.createAuditLog({
-      userId: user.id!,
+      actorId: user.uid!,
+      actorType: "user",
+      operationType: "login",
       action: "LOGIN_SUCCESS",
       details: JSON.stringify({
-        method: "passphrase"
+        method: "passphrase",
+        deviceInfo,
       }),
-      ipAddress,
+      clientIp: ipAddress,
       userAgent,
-      metadata: {
-        deviceInfo
-      }
+      success: true
     });
 
     // Set JWT as a cookie
     const response = NextResponse.json({
       success: true,
-      userId: user.id,
+      userId: user.uid,
       name: user.name,
       email: user.email,
       canAddWebAuthn: !user.hasWebAuthn // Include whether user can add WebAuthn

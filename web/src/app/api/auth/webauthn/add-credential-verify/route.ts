@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     try {
       // Call verifyRegistration with all required parameters
       await verifyRegistration(
-        user.id,
+        user.uid,
         email,
         deviceName,
         response,
@@ -120,12 +120,12 @@ export async function POST(request: NextRequest) {
       
       // The verification process will store the credential in Dgraph
       // Now we need to update the user's WebAuthn status
-      await client.updateUserHasWebAuthn(user.id, true);
+      await client.updateUserHasWebAuthn(user.uid, true);
 
       logger.info(`WebAuthn credential added for user: ${email}`, {
         action: "WEBAUTHN_ADD_CREDENTIAL_SUCCESS",
         ip,
-        userId: user.id,
+        userId: user.uid,
       });
 
       return NextResponse.json({
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
       logger.error(`Error verifying WebAuthn credential: ${error}`, {
         action: "WEBAUTHN_ADD_CREDENTIAL_VERIFY_ERROR",
         ip,
-        userId: user.id,
+        userId: user.uid,
         error: error instanceof Error ? error.message : String(error),
       });
       return NextResponse.json(

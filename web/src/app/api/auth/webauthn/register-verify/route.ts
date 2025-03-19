@@ -5,6 +5,7 @@ import { verifyRegistrationResponse } from "@simplewebauthn/server";
 import type {
   RegistrationResponseJSON,
   Base64URLString,
+  CredentialDeviceType,
 } from "@simplewebauthn/server";
 import { verifyEmailVerificationData } from "@/lib/utils";
 import { DgraphClient } from "@/lib/dgraph";
@@ -31,6 +32,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Parse the request body
     const body = await request.json();
     const response = body.response as RegistrationResponseJSON;
+    let userName = ""; // Declare userName in the outer scope
 
     // Log the entire request body for debugging
     logger.debug("WebAuthn registration verification request body", {
@@ -40,16 +42,50 @@ export async function POST(request: Request): Promise<NextResponse> {
       isBiometric: body.isBiometric,
       hasDeviceInfo: !!body.deviceInfo,
       responseTransports: response.response.transports,
+      userAgent: request.headers.get("user-agent") || "unknown",
     });
+
+    // Try to detect device type from user agent if not provided
+    let detectedDeviceType = body.deviceType || "unknown";
+    let detectedDeviceName = body.deviceName || "Unknown device";
+    const userAgent = request.headers.get("user-agent") || "";
+
+    // Default to client-provided value, but we'll enhance this later
+    let isBiometric = body.isBiometric || false;
+
+    if (detectedDeviceType === "unknown" && userAgent) {
+      // Simple device type detection from user agent
+      if (/iPhone|iPad|iPod/.test(userAgent)) {
+        detectedDeviceType = "ios";
+        detectedDeviceName = detectedDeviceName === "Unknown device" ? "iOS Device" : detectedDeviceName;
+      } else if (/Android/.test(userAgent)) {
+        detectedDeviceType = "android";
+        detectedDeviceName = detectedDeviceName === "Unknown device" ? "Android Device" : detectedDeviceName;
+      } else if (/Windows/.test(userAgent)) {
+        detectedDeviceType = "windows";
+        detectedDeviceName = detectedDeviceName === "Unknown device" ? "Windows Device" : detectedDeviceName;
+      } else if (/Macintosh|Mac OS X/.test(userAgent)) {
+        detectedDeviceType = "mac";
+        detectedDeviceName = detectedDeviceName === "Unknown device" ? "Mac Device" : detectedDeviceName;
+      } else if (/Linux/.test(userAgent)) {
+        detectedDeviceType = "linux";
+        detectedDeviceName = detectedDeviceName === "Unknown device" ? "Linux Device" : detectedDeviceName;
+      }
+
+      logger.debug("Detected device type from user agent", {
+        action: "WEBAUTHN_REGISTER_DEVICE_DETECTION",
+        originalDeviceType: body.deviceType || "not provided",
+        detectedDeviceType,
+        userAgent,
+      });
+    }
 
     // Extract the email from the cookie
     const cookieStore = await cookies();
     const emailVerificationCookie = cookieStore.get("emailVerification");
 
     if (!emailVerificationCookie || !emailVerificationCookie.value) {
-      logger.warn(
-        "No email verification cookie found for WebAuthn registration"
-      );
+      logger.warn("No email verification cookie found for WebAuthn registration");
       return NextResponse.json(
         { error: "Email verification required" },
         { status: 401 }
@@ -63,9 +99,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         emailVerificationCookie.value
       );
       if (!verificationData || !verificationData.email) {
-        logger.warn(
-          "Invalid email verification cookie for WebAuthn registration"
-        );
+        logger.warn("Invalid email verification cookie for WebAuthn registration");
         return NextResponse.json(
           { error: "Invalid email verification" },
           { status: 401 }
@@ -74,6 +108,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       email = verificationData.email;
       logger.debug(`Email verified via cookie for ${email}`);
+      
+      // Extract user name from email if not provided in request
+      userName = body.name || email.split('@')[0];
+      logger.debug(`Using name for registration: ${userName}`);
     } catch (error) {
       logger.error("Error verifying email verification cookie", {
         action: "WEBAUTHN_REGISTER_VERIFY_COOKIE_ERROR",
@@ -186,10 +224,18 @@ export async function POST(request: Request): Promise<NextResponse> {
         logger.info("User already exists, updating WebAuthn status", {
           action: "WEBAUTHN_REGISTER_USER_EXISTS",
           email,
-          userId: existingUser.id,
+          userId: existingUser.uid,
+          userDetails: {
+            did: existingUser.did,
+            hasRoles: existingUser.roles && existingUser.roles.length > 0,
+            roles: existingUser.roles && existingUser.roles.length > 0
+              ? existingUser.roles.map((r) => (typeof r === 'object' && r !== null && 'name' in r ? r.name : r.uid)).join(',')
+              : "none",
+            hasWebAuthn: existingUser.hasWebAuthn,
+          },
         });
 
-        userId = existingUser.id;
+        userId = existingUser.uid;
 
         // Ensure the user has the registered role
         if (registeredRole) {
@@ -272,10 +318,11 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         // Create a new user
         const now = new Date();
+        const userDid = `did:nfe:${uuidv4().replace(/-/g, "")}`;
         newUser = {
           email,
-          did: uuidv4(), // Generate a DID for the user
-          name: null,
+          did: userDid, // Generate a properly formatted DID for the user
+          name: userName, // Use the extracted or provided name
           verified: true,
           emailVerified: now.toISOString(),
           dateJoined: now.toISOString(),
@@ -300,6 +347,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           {
             action: "WEBAUTHN_REGISTER_CREATE_USER_START",
             email,
+            did: userDid,
             hasRole: registeredRole ? true : false,
             roleId: registeredRole ? registeredRole.uid : null,
             roles: newUser.roles,
@@ -313,8 +361,46 @@ export async function POST(request: Request): Promise<NextResponse> {
             action: "WEBAUTHN_REGISTER_USER_CREATED",
             email,
             userId,
+            did: userDid,
             roles: newUser.roles.length,
           });
+
+          // Verify the user was created with all fields
+          try {
+            const createdUser = await dgraphClient.getUserById(userId);
+            logger.debug("Verifying created user data", {
+              action: "WEBAUTHN_REGISTER_VERIFY_USER",
+              userId,
+              hasEmail: !!createdUser?.email,
+              hasDid: !!createdUser?.did,
+              hasRoles: createdUser?.roles && createdUser.roles.length > 0,
+            });
+
+            if (!createdUser?.email) {
+              logger.warn("Created user is missing email field", {
+                action: "WEBAUTHN_REGISTER_USER_MISSING_EMAIL",
+                userId,
+                email,
+                userFields: Object.keys(createdUser || {}).join(', '),
+              });
+
+              // Update the user with the email field
+              await dgraphClient.updateUserField(userId, "email", email);
+
+              logger.info("Updated user with email field", {
+                action: "WEBAUTHN_REGISTER_USER_EMAIL_UPDATED",
+                userId,
+                email,
+              });
+            }
+          } catch (verifyError) {
+            logger.error("Error verifying created user", {
+              action: "WEBAUTHN_REGISTER_VERIFY_USER_ERROR",
+              userId,
+              email,
+              error: verifyError instanceof Error ? verifyError.message : "Unknown error",
+            });
+          }
 
           // Explicitly assign the registered role to the user
           if (registeredRole && userId) {
@@ -447,7 +533,37 @@ export async function POST(request: Request): Promise<NextResponse> {
             verified: verification.verified,
             hasRegistrationInfo: !!verification.registrationInfo,
             fmt: verification.registrationInfo?.fmt,
+            aaguid: verification.registrationInfo?.aaguid || "",
+            credentialDeviceType: verification.registrationInfo?.credentialDeviceType || "",
+            credentialBackedUp: verification.registrationInfo?.credentialBackedUp || false,
           });
+
+          // Enhanced biometric detection based on verification result and device type
+          if (verification.registrationInfo) {
+            // Check for Touch ID on Mac
+            if (detectedDeviceType === "mac" && 
+                (verification.registrationInfo.credentialDeviceType === "platform" as CredentialDeviceType || 
+                 /Touch ID|TouchID|FaceID|Face ID/i.test(userAgent))) {
+              isBiometric = true;
+              logger.debug("Detected Touch ID on Mac", {
+                action: "WEBAUTHN_REGISTER_BIOMETRIC_DETECTION",
+                email,
+                userId,
+                credentialDeviceType: verification.registrationInfo.credentialDeviceType,
+                userAgent: userAgent.substring(0, 100) // Truncate for logging
+              });
+            }
+            
+            // Check for platform authenticator which often indicates biometric
+            if (verification.registrationInfo.credentialDeviceType === "platform" as CredentialDeviceType) {
+              isBiometric = true;
+              logger.debug("Detected platform authenticator (likely biometric)", {
+                action: "WEBAUTHN_REGISTER_BIOMETRIC_DETECTION",
+                email,
+                userId
+              });
+            }
+          }
 
           if (!verification.verified) {
             logger.error("WebAuthn registration verification failed", {
@@ -517,10 +633,10 @@ export async function POST(request: Request): Promise<NextResponse> {
             counter: verification.registrationInfo.credential.counter,
             transports: response.response.transports || [],
             lastUsed: currentTime.toISOString(),
-            deviceName: body.deviceName || "Unknown device",
-            isBiometric: body.isBiometric || false,
-            deviceType: body.deviceType || "unknown",
-            deviceInfo: body.deviceInfo || "",
+            deviceName: detectedDeviceName,
+            isBiometric: isBiometric,
+            deviceType: detectedDeviceType,
+            deviceInfo: body.deviceInfo || userAgent || "",
             userId: userId,
             createdAt: currentTime.toISOString(),
             updatedAt: null,
@@ -534,6 +650,10 @@ export async function POST(request: Request): Promise<NextResponse> {
             credentialData: JSON.stringify({
               ...credentialData,
               credentialPublicKey: "[REDACTED]", // Don't log the actual key
+              deviceName: credentialData.deviceName,
+              deviceType: credentialData.deviceType,
+              deviceInfo: credentialData.deviceInfo ? "provided" : "not provided",
+              isBiometric: credentialData.isBiometric,
             }),
           });
 

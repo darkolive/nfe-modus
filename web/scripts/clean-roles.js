@@ -1,6 +1,6 @@
 // Clean up duplicate roles in Dgraph database
-const dgraph = require('dgraph-js');
-const grpc = require('@grpc/grpc-js');
+import dgraph from 'dgraph-js';
+import * as grpc from '@grpc/grpc-js';
 
 async function cleanRoles() {
   console.log('Connecting to Dgraph...');

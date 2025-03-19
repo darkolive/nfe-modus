@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     }
 
     // Find the credential being used
-    const credentials = await client.getUserCredentials(user.id);
+    const credentials = await client.getUserCredentials(user.uid);
     const credential = credentials.find(cred => cred.credentialID === response.id);
 
     if (!credential) {
@@ -162,12 +162,12 @@ export async function POST(request: Request) {
       updatedAt: now,
       hasWebAuthn: true, // Ensure this is set since we've verified WebAuthn
     };
-    await client.updateUser(user.id, updates);
+    await client.updateUser(user.uid, updates);
 
     // Create session token
     const sessionData: SessionData = {
-      id: user.id,
-      userId: user.id, // Use the user's ID for both id and userId fields
+      id: user.uid,
+      userId: user.uid, // Use the user's ID for both id and userId fields
       email: user.email,
       deviceId: credential.credentialID, // Use the credential ID as the device ID
       roles: user.roles.map(role => role.uid), // Convert role objects to strings
@@ -182,7 +182,7 @@ export async function POST(request: Request) {
       action: "WEBAUTHN_AUTHENTICATION_VERIFY_SUCCESS",
       email,
       ip,
-      userId: user.id,
+      userId: user.uid,
     });
 
     return NextResponse.json(

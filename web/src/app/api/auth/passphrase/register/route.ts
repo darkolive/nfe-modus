@@ -114,9 +114,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       passwordHash: hash,
       passwordSalt: salt,
       recoveryEmail: recoveryEmail || null,
-      mfaEnabled: false,
-      mfaMethod: null,
-      mfaSecret: null,
       failedLoginAttempts: 0,
       lastFailedLogin: null,
       lockedUntil: null,
@@ -163,17 +160,18 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // Log successful registration
     await dgraphClient.createAuditLog({
-      userId,
+      actorId: userId,
+      actorType: "user",
+      operationType: "register",
       action: "PASSPHRASE_REGISTER_SUCCESS",
       details: JSON.stringify({
         method: "passphrase",
         hasRecoveryEmail: !!recoveryEmail,
-      }),
-      ipAddress: ip,
-      userAgent,
-      metadata: {
         verificationMethod: verifiedEmail.method,
-      },
+      }),
+      clientIp: ip,
+      userAgent,
+      success: true,
     });
 
     // Assign default role

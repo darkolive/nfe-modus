@@ -90,9 +90,6 @@ export async function POST(request: Request) {
         passwordHash: hash,
         passwordSalt: salt,
         recoveryEmail: null,
-        mfaEnabled: false,
-        mfaMethod: null,
-        mfaSecret: null,
         failedLoginAttempts: 0,
         lastFailedLogin: null,
         lockedUntil: null,
@@ -109,7 +106,7 @@ export async function POST(request: Request) {
       }
     } else {
       // Update user with passphrase
-      await client.updateUser(user.id, {
+      await client.updateUser(user.uid, {
         hasPassphrase: true,
         passwordHash: hash,
         passwordSalt: salt,
@@ -124,7 +121,7 @@ export async function POST(request: Request) {
       action: "SET_PASSPHRASE_SUCCESS",
       email,
       ip,
-      userId: user.id,
+      userId: user.uid,
     });
 
     return NextResponse.json({

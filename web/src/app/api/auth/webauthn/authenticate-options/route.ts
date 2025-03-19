@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const credentials = await client.getUserCredentials(user.id);
+    const credentials = await client.getUserCredentials(user.uid);
     if (!credentials.length) {
       logger.info("No WebAuthn credentials found", {
         action: "WEBAUTHN_AUTHENTICATION_OPTIONS_ERROR",

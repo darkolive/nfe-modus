@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
     // Get user's existing credentials if they exist
     const user = await client.getUserByEmail(email);
-    const existingCredentials = user ? await client.getUserCredentials(user.id) : [];
+    const existingCredentials = user ? await client.getUserCredentials(user.uid) : [];
 
     logger.info(
       `Generating WebAuthn registration options for email: ${email}`,

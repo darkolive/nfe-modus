@@ -35,7 +35,6 @@ export interface UserData {
   status: 'active' | 'inactive' | 'locked';
   hasWebAuthn: boolean;
   hasPassphrase: boolean;
-  mfaEnabled: boolean;
   failedLoginAttempts: number;
   lastFailedLogin: Date | null;
   lockedUntil: Date | null;

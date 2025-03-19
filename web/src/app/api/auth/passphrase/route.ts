@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     }
 
     // Check if account is locked
-    const isLocked = await client.isAccountLocked(user.id);
+    const isLocked = await client.isAccountLocked(user.uid);
     if (isLocked) {
       logger.error("Account locked", {
         action: "PASSPHRASE_AUTH_ERROR",
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     );
     if (!isValid) {
       // Increment failed login attempts
-      await client.incrementFailedLoginAttempts(user.id);
+      await client.incrementFailedLoginAttempts(user.uid);
 
       logger.error("Invalid passphrase", {
         action: "PASSPHRASE_AUTH_ERROR",
@@ -129,15 +129,15 @@ export async function POST(request: Request) {
     }
 
     // Reset failed login attempts
-    await client.updateUser(user.id, {
+    await client.updateUser(user.uid, {
       failedLoginAttempts: 0,
       lastAuthTime: new Date(),
     });
 
     // Create session token
     const sessionData: SessionData = {
-      id: user.id,
-      userId: user.id,
+      id: user.uid,
+      userId: user.uid,
       email: user.email,
       deviceId: "browser", // Default device ID for passphrase authentication
       roles: user.roles.map(role => role.uid),
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
       action: "PASSPHRASE_AUTH_SUCCESS",
       email,
       ip,
-      userId: user.id,
+      userId: user.uid,
     });
 
     return NextResponse.json(

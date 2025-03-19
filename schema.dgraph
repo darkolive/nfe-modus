@@ -1,5 +1,10 @@
 <action>: string .
+<actorId>: string @index(exact) .
+<actorType>: string @index(exact) .
+<auditTimestamp>: datetime @index(hour) .
 <challenge>: string @index(exact) .
+<clientIp>: string @index(exact) .
+<complianceFlags>: [string] .
 <counter>: int .
 <created>: datetime .
 <createdAt>: datetime .
@@ -31,16 +36,23 @@
 <lastUsed>: datetime .
 <lockedUntil>: datetime .
 <metadata>: uid .
-<mfaEnabled>: bool .
-<mfaMethod>: string .
-<mfaSecret>: string .
 <name>: string @index(exact) .
+<operationType>: string @index(exact) .
 <passwordHash>: string .
 <passwordSalt>: string .
 <permissions>: [string] .
 <recoveryEmail>: string @index(exact) .
+<requestMethod>: string .
+<requestParams>: string .
+<requestPath>: string @index(exact) .
+<resourceId>: string @index(exact) .
+<resourceType>: string @index(exact) .
+<responseStatus>: int .
 <roles>: [uid] @reverse .
+<sensitiveOperation>: bool .
+<sessionId>: string @index(exact) .
 <status>: string .
+<success>: bool .
 <timestamp>: string .
 <transports>: [string] .
 <updatedAt>: datetime .
@@ -50,6 +62,26 @@
 <users>: [uid] @reverse .
 <verificationMethod>: string .
 <verified>: bool .
+type <AuditLog> {
+	action
+	actorId
+	actorType
+	resourceId
+	resourceType
+	operationType
+	requestPath
+	requestMethod
+	requestParams
+	responseStatus
+	clientIp
+	auditTimestamp
+	sessionId
+	userAgent
+	success
+	sensitiveOperation
+	complianceFlags
+	details
+}
 type <Challenge> {
 	email
 	challenge

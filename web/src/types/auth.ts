@@ -82,9 +82,6 @@ export interface User {
   passwordHash: string | null;
   passwordSalt: string | null;
   recoveryEmail: string | null;
-  mfaEnabled: boolean;
-  mfaMethod: string | null;
-  mfaSecret: string | null;
   failedLoginAttempts: number;
   lastFailedLogin: datetime | null;
   lockedUntil: datetime | null;

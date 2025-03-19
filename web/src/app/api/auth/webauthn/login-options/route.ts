@@ -60,12 +60,12 @@ export async function POST(request: Request) {
     }
 
     // Get WebAuthn credentials
-    const credentials = await client.getUserCredentials(user.id);
+    const credentials = await client.getUserCredentials(user.uid);
     if (!credentials || credentials.length === 0) {
       logger.info(`No credentials found for user: ${email}, generating registration options`, {
         action: "WEBAUTHN_REGISTRATION_REDIRECT",
         ip,
-        userId: user.id,
+        userId: user.uid,
       });
       
       // Since user has no credentials, generate registration options instead
@@ -75,14 +75,14 @@ export async function POST(request: Request) {
         
         // Log user details for debugging
         logger.debug(`User details for registration: ${JSON.stringify({
-          id: user.id,
+          id: user.uid,
           email: user.email,
           name: user.name,
           hasUser: !!user
         })}`);
         
         // Get the user's existing WebAuthn credentials (if any)
-        const existingCredentials = await client.getUserCredentials(user.id) || [];
+        const existingCredentials = await client.getUserCredentials(user.uid) || [];
         
         // Log credentials for debugging
         logger.debug(`Existing credentials: ${JSON.stringify({
@@ -101,13 +101,13 @@ export async function POST(request: Request) {
         return NextResponse.json({
           ...regOptions,
           isRegistrationFlow: true, // Flag to indicate this is a registration flow
-          userId: user.id // Include the user ID for reference
+          userId: user.uid // Include the user ID for reference
         });
       } catch (error) {
         logger.error(`Error generating registration options: ${error}`, {
           action: "WEBAUTHN_REGISTRATION_OPTIONS_ERROR",
           ip,
-          userId: user.id,
+          userId: user.uid,
           error: error instanceof Error ? error.message : String(error)
         });
         
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
             error: "No security keys found",
             details: "No WebAuthn credentials found for this account",
             canRegisterWebAuthn: true,
-            userId: user.id,
+            userId: user.uid,
             hasPassphrase: user.hasPassphrase,
           },
           { status: 200 }

@@ -93,19 +93,19 @@ export async function POST(request: NextRequest) {
     const [cookie] = await Promise.all([
       createSession(sessionData),
       dgraphClient.createAuditLog({
-        userId: credential.userId,
+        actorId: credential.userId,
+        actorType: "user",
+        operationType: "login",
         action: "WEBAUTHN_LOGIN_SUCCESS",
         details: JSON.stringify({
           method: "webauthn",
           credentialId: credential.credentialID,
-        }),
-        ipAddress,
-        userAgent,
-        metadata: {
           deviceId: credential.credentialID,
           deviceType: credential.deviceType,
-          deviceInfo: credential.deviceInfo,
-        }
+        }),
+        clientIp: ipAddress,
+        userAgent,
+        success: true
       })
     ]);
 

@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     // Create a session token for the user
     const sessionToken = await createSessionToken({
-      id: user.id || user.uid,
+      id: user.uid,
       userId: user.uid,
       email: user.email,
       deviceId: "web", // Default device ID

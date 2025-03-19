@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get existing credentials (if any) to exclude them
-    const existingCredentials = await client.getUserCredentials(user.id);
+    const existingCredentials = await client.getUserCredentials(user.uid);
 
     // Generate registration options
     logger.info(`Generating WebAuthn registration options for email: ${email}`, {
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
       logger.error(`Error generating registration options: ${error}`, {
         action: "WEBAUTHN_ADD_CREDENTIAL_ERROR",
         ip,
-        userId: user.id,
+        userId: user.uid,
         error: error instanceof Error ? error.message : String(error),
       });
       

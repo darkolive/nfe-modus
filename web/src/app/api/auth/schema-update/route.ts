@@ -17,11 +17,6 @@ export async function POST() {
       verified: bool .
       status: string .
       
-      # MFA fields
-      mfaEnabled: bool .
-      mfaMethod: string .
-      mfaSecret: string .
-      
       # Account security fields
       failedLoginAttempts: int .
       lastFailedLogin: datetime .
@@ -68,9 +63,6 @@ export async function POST() {
         passwordHash
         passwordSalt
         recoveryEmail
-        mfaEnabled
-        mfaMethod
-        mfaSecret
         failedLoginAttempts
         lastFailedLogin
         lockedUntil

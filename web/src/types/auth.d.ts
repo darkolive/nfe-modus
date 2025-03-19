@@ -10,9 +10,6 @@ export interface User {
   passwordHash?: string;
   passwordSalt?: string;
   recoveryEmail?: string;
-  mfaEnabled?: boolean;
-  mfaMethod?: string;
-  mfaSecret?: string;
   failedLoginAttempts?: number;
   lastFailedLogin?: string;
   lockedUntil?: string;
@@ -48,7 +45,11 @@ export interface ChallengeData {
   expiresAt: Date;
 }
 
-import type { CredentialDeviceType, AuthenticatorTransportFuture, Base64URLString } from "@simplewebauthn/server";
+import type {
+  CredentialDeviceType,
+  AuthenticatorTransportFuture,
+  Base64URLString,
+} from "@simplewebauthn/server";
 
 // Credential data
 export interface CredentialData {
@@ -82,9 +83,6 @@ export interface UserData {
   passwordHash?: string;
   passwordSalt?: string;
   recoveryEmail?: string;
-  mfaEnabled?: boolean;
-  mfaMethod?: string;
-  mfaSecret?: string;
   failedLoginAttempts?: number;
   lastFailedLogin?: string;
   lockedUntil?: string;
@@ -141,11 +139,4 @@ export interface PasswordResetTokenData {
   expiresAt: string;
   createdAt: string;
   isUsed: boolean;
-}
-
-// MFA verification data
-export interface MFAVerificationData {
-  success: boolean;
-  error?: string;
-  userId?: string;
 }

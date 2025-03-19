@@ -1,18 +1,18 @@
 // Initialize Dgraph schema
-const dgraph = require('dgraph-js');
-const grpc = require('@grpc/grpc-js');
+import dgraph from "dgraph-js";
+import * as grpc from "@grpc/grpc-js";
 
 async function initializeSchema() {
-  console.log('Connecting to Dgraph...');
+  console.log("Connecting to Dgraph...");
   const clientStub = new dgraph.DgraphClientStub(
-    'localhost:9080',
+    "localhost:9080",
     grpc.credentials.createInsecure()
   );
   const dgraphClient = new dgraph.DgraphClient(clientStub);
-  
+
   try {
-    console.log('Initializing Dgraph schema...');
-    
+    console.log("Initializing Dgraph schema...");
+
     // Define schema using the correct Dgraph syntax
     const schema = `
       # Predicates
@@ -29,9 +29,6 @@ async function initializeSchema() {
       passwordHash: string .
       passwordSalt: string .
       recoveryEmail: string @index(exact) .
-      mfaEnabled: bool .
-      mfaMethod: string .
-      mfaSecret: string .
       failedLoginAttempts: int .
       lastFailedLogin: datetime .
       lockedUntil: datetime .
@@ -75,9 +72,6 @@ async function initializeSchema() {
         passwordHash
         passwordSalt
         recoveryEmail
-        mfaEnabled
-        mfaMethod
-        mfaSecret
         failedLoginAttempts
         lastFailedLogin
         lockedUntil
@@ -122,11 +116,11 @@ async function initializeSchema() {
     const op = new dgraph.Operation();
     op.setSchema(schema);
     await dgraphClient.alter(op);
-    console.log('✅ Successfully initialized Dgraph schema');
+    console.log("✅ Successfully initialized Dgraph schema");
 
     // Initialize system roles
-    console.log('Initializing system roles...');
-    
+    console.log("Initializing system roles...");
+
     // Create admin role
     const adminTxn = dgraphClient.newTxn();
     try {
@@ -136,17 +130,17 @@ async function initializeSchema() {
         "dgraph.type": "Role",
         name: "admin",
         permissions: ["admin:*"],
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       });
       await adminTxn.mutate(adminMutation);
       await adminTxn.commit();
-      console.log('✅ Created admin role');
+      console.log("✅ Created admin role");
     } catch (error) {
-      console.error('❌ Error creating admin role:', error);
+      console.error("❌ Error creating admin role:", error);
     } finally {
       await adminTxn.discard();
     }
-    
+
     // Create registered role
     const regTxn = dgraphClient.newTxn();
     try {
@@ -156,24 +150,24 @@ async function initializeSchema() {
         "dgraph.type": "Role",
         name: "registered",
         permissions: ["user:read", "user:write"],
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       });
       await regTxn.mutate(regMutation);
       await regTxn.commit();
-      console.log('✅ Created registered role');
+      console.log("✅ Created registered role");
     } catch (error) {
-      console.error('❌ Error creating registered role:', error);
+      console.error("❌ Error creating registered role:", error);
     } finally {
       await regTxn.discard();
     }
 
-    console.log('Schema initialization complete!');
+    console.log("Schema initialization complete!");
   } catch (error) {
-    console.error('❌ Error during schema initialization:', error);
+    console.error("❌ Error during schema initialization:", error);
     console.error(error);
   } finally {
     clientStub.close();
-    console.log('Connection closed');
+    console.log("Connection closed");
   }
 }
 

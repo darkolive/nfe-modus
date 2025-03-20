@@ -53,18 +53,54 @@ func __modus_VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) *auth.WebAuth
 	return r0
 }
 
-//go:export setPassphrase
-func __modus_SetPassphrase(req *auth.SetPassphraseRequest) *auth.SetPassphraseResponse {
-	r0, err := SetPassphrase(req)
+//go:export registerPassphrase
+func __modus_RegisterPassphrase(req *auth.RegisterPassphraseRequest) *auth.RegisterPassphraseResponse {
+	r0, err := RegisterPassphrase(req)
 	if err != nil {
 		console.Error(err.Error())
 	}
 	return r0
 }
 
-//go:export verifyPassphrase
-func __modus_VerifyPassphrase(req *auth.VerifyPassphraseRequest) *auth.VerifyPassphraseResponse {
-	r0, err := VerifyPassphrase(req)
+//go:export signinPassphrase
+func __modus_SigninPassphrase(req *auth.SigninPassphraseRequest) *auth.SigninPassphraseResponse {
+	r0, err := SigninPassphrase(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export recoveryPassphrase
+func __modus_RecoveryPassphrase(req *auth.RecoveryPassphraseRequest) *auth.RecoveryPassphraseResponse {
+	r0, err := RecoveryPassphrase(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export resetPassphrase
+func __modus_ResetPassphrase(req *auth.ResetPassphraseRequest) *auth.ResetPassphraseResponse {
+	r0, err := ResetPassphrase(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export updateUserDetails
+func __modus_UpdateUserDetails(req *auth.UserDetailsRequest) *auth.UserDetailsResponse {
+	r0, err := UpdateUserDetails(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export registerUserDetails
+func __modus_RegisterUserDetails(req *auth.RegisterUserDetailsRequest) *auth.UserDetailsResponse {
+	r0, err := RegisterUserDetails(req)
 	if err != nil {
 		console.Error(err.Error())
 	}

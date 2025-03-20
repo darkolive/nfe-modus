@@ -221,9 +221,8 @@ func (h *Handler) HandleOTPVerification(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		Email    string `json:"email"`
-		DeviceID string `json:"deviceId"`
 		OTP      string `json:"otp"`
+		Cookie   string `json:"cookie"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		console.Error("Failed to decode request: " + err.Error())
@@ -231,9 +230,16 @@ func (h *Handler) HandleOTPVerification(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// If cookie is not provided, we can't proceed
+	if req.Cookie == "" {
+		console.Error("No cookie provided for OTP verification")
+		http.Error(w, "Cookie required for verification", http.StatusBadRequest)
+		return
+	}
+
 	verifyReq := VerifyOTPRequest{
-		Email: req.Email,
-		OTP:   req.OTP,
+		OTP:    req.OTP,
+		Cookie: req.Cookie,
 	}
 	resp, err := h.otpService.VerifyOTP(&verifyReq)
 	if err != nil {

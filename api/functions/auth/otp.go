@@ -26,6 +26,7 @@ type OTPService struct {
 	}
 	mu            sync.Mutex // Mutex for thread safety
 	failedAttempts map[string]int // Store for tracking failed attempts
+	verifiedEmailsMutex sync.Mutex // Mutex for thread safety
 }
 
 type EmailSender interface {
@@ -64,6 +65,7 @@ func NewOTPService(conn string, emailSender EmailSender) *OTPService {
 		}),
 		mu: sync.Mutex{},
 		failedAttempts: make(map[string]int),
+		verifiedEmailsMutex: sync.Mutex{},
 	}
 }
 
@@ -94,12 +96,21 @@ func (s *OTPService) GetVerifiedEmail(email string) (string, time.Time, bool) {
 }
 
 // ClearVerifiedEmail removes a verified email from memory
-func (s *OTPService) ClearVerifiedEmail(email string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *OTPService) ClearVerifiedEmail(verificationCookie string) {
+	// If cookie is provided, try to get the email from it
+	if verificationCookie != "" {
+		verificationInfo, err := s.CheckVerificationCookie("", verificationCookie)
+		if err == nil && verificationInfo != nil {
+			email := verificationInfo.Email
+			s.verifiedEmailsMutex.Lock()
+			defer s.verifiedEmailsMutex.Unlock()
+			delete(s.verifiedEmails, email)
+			console.Debug(fmt.Sprintf("Cleared verified email from memory: %s", email))
+			return
+		}
+	}
 	
-	delete(s.verifiedEmails, email)
-	console.Debug(fmt.Sprintf("Cleared verified email from memory: %s", email))
+	console.Debug("No email provided in verification cookie, unable to clear verified email from memory")
 }
 
 type OTP struct {
@@ -122,7 +133,6 @@ type GenerateOTPResponse struct {
 }
 
 type VerifyOTPRequest struct {
-	Email  string `json:"email"`
 	OTP    string `json:"otp"`
 	Cookie string `json:"cookie"` // Encrypted cookie value
 }
@@ -131,7 +141,7 @@ type VerifyOTPResponse struct {
 	Success        bool   `json:"success"`
 	Message        string `json:"message"`
 	Token          string `json:"token,omitempty"`
-	User           *User  `json:"user,omitempty"`
+	User           *UserData  `json:"user,omitempty"`
 	VerificationCookie string `json:"verificationCookie,omitempty"`
 }
 
@@ -163,7 +173,7 @@ func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse,
 	}
 	
 	// Generate new OTP
-	otp, err := GenerateOTP()
+	otp, err := generateRandomOTP()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate OTP: %v", err)
 	}
@@ -199,22 +209,7 @@ func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse,
 }
 
 func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error) {
-	email := req.Email
-	if email == "" {
-		return &VerifyOTPResponse{
-			Success: false,
-			Message: "Email is required",
-		}, nil
-	}
-
-	if req.OTP == "" {
-		return &VerifyOTPResponse{
-			Success: false,
-			Message: "OTP is required",
-		}, nil
-	}
-
-	// Decrypt and validate OTP cookie
+	// Decrypt and validate OTP cookie first to get email if not provided
 	var otpData OTP
 	var err error
 	
@@ -228,11 +223,22 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 			}, nil
 		}
 		otpData = *otpDataPtr
+		
+		// If email is not provided in the request, use the one from the cookie
+		// req.Email = otpData.Email
 	} else {
 		// If no cookie, we can't proceed
 		return &VerifyOTPResponse{
 			Success: false,
 			Message: "OTP verification failed - no valid cookie",
+		}, nil
+	}
+	
+	// Now check if we have an email (either from request or cookie)
+	if req.OTP == "" {
+		return &VerifyOTPResponse{
+			Success: false,
+			Message: "OTP is required",
 		}, nil
 	}
 
@@ -247,7 +253,7 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	// Check if OTP is valid
 	if req.OTP != otpData.Code {
 		// Increment failed attempts
-		s.incrementFailedAttempts(email)
+		s.incrementFailedAttempts(otpData.Email)
 		return &VerifyOTPResponse{
 			Success: false,
 			Message: "Invalid OTP",
@@ -260,11 +266,11 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	now := time.Now().UTC()
 	
 	// Record verification in memory store
-	s.StoreVerifiedEmail(email)
+	s.StoreVerifiedEmail(otpData.Email)
 	
 	// Generate cookie for web client
 	cookieString, cookieGenErr := s.generateVerificationCookieV2(VerificationInfo{
-		Email:      email,
+		Email:      otpData.Email,
 		VerifiedAt: now,
 		Method:     "OTP",
 	})
@@ -274,13 +280,13 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	}
 	
 	// Reset failed attempts counter
-	s.resetFailedAttempts(email)
+	s.resetFailedAttempts(otpData.Email)
 	
 	// Get or create user record
-	userData, err := s.getUserByEmail(email)
+	userData, err := s.getUserByEmail(otpData.Email)
 	if err != nil {
 		// If user doesn't exist, create a new one
-		userData, err = s.createUser(email)
+		userData, err = s.createUser(otpData.Email)
 		if err != nil {
 			console.Error("Failed to create user record: " + err.Error())
 			return &VerifyOTPResponse{
@@ -292,9 +298,8 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	
 	// Generate token and user object for response
 	tokenString := generateSessionToken()
-	userObj := &User{
-		ID:    userData.UID,
-		Email: email,
+	userObj := &UserData{
+		UID: userData.UID,
 	}
 	
 	// Return success response
@@ -407,6 +412,19 @@ func (s *OTPService) getUserByEmail(email string) (*UserData, error) {
 func (s *OTPService) createUser(email string) (*UserData, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	
+	// Try to encrypt the email for database storage
+	emailToStore := email // Default to plaintext email
+	
+	// Use the more reliable method with fallback for email encryption
+	emailEncryption := NewEmailEncryptionWithFallback()
+	encryptedEmail, encryptErr := emailEncryption.EncryptEmail(email)
+	if encryptErr == nil {
+		emailToStore = encryptedEmail // Use encrypted email for storage
+		console.Info("Email encrypted successfully for database storage")
+	} else {
+		console.Warn("Failed to encrypt email, using plaintext: " + encryptErr.Error())
+	}
+	
 	mutation := &dgraph.Mutation{
 		SetNquads: fmt.Sprintf(`
 			_:user <dgraph.type> "User" .
@@ -415,7 +433,7 @@ func (s *OTPService) createUser(email string) (*UserData, error) {
 			_:user <dateJoined> "%s" .
 			_:user <verified> "true" .
 			_:user <failedLoginAttempts> "0" .
-		`, email, now),
+		`, dgraph.EscapeRDF(emailToStore), now),
 	}
 	
 	resp, err := dgraph.ExecuteMutations(s.conn, mutation)
@@ -424,11 +442,36 @@ func (s *OTPService) createUser(email string) (*UserData, error) {
 	}
 	
 	// Extract the UID of the new user
+	var userUID string
 	for _, uid := range resp.Uids {
-		return &UserData{UID: uid}, nil
+		userUID = uid
+		break
 	}
 	
-	return nil, fmt.Errorf("failed to create user")
+	if userUID == "" {
+		return nil, fmt.Errorf("failed to create user")
+	}
+	
+	// Create a RoleService and ensure roles exist before assigning them
+	roleService := NewRoleService(s.conn)
+	
+	// Ensure the roles exist before assignment
+	ensureErr := roleService.EnsureRolesExist()
+	if ensureErr != nil {
+		console.Error("Failed to ensure roles exist: " + ensureErr.Error())
+		// This is non-fatal, continue with role assignment attempt
+	}
+	
+	// Assign the registered role to the new user
+	roleErr := roleService.AssignRoleToUser(userUID, "registered")
+	if roleErr != nil {
+		console.Error("Failed to assign registered role to new user: " + roleErr.Error())
+		// This is non-fatal, continue with user creation
+	} else {
+		console.Info(fmt.Sprintf("Successfully assigned 'registered' role to new user with email: %s", email))
+	}
+	
+	return &UserData{UID: userUID}, nil
 }
 
 // updateUserVerification updates a user's verification status
@@ -448,20 +491,17 @@ func (s *OTPService) updateUserVerification(user *UserData, now time.Time) error
 }
 
 // GenerateOTP creates a cryptographically secure OTP
-func GenerateOTP() (string, error) {
-	var otp strings.Builder
-	otp.Grow(otpLength)
-
-	// Use crypto/rand for secure random numbers
-	for i := 0; i < otpLength; i++ {
-		num, err := rand.Int(rand.Reader, big.NewInt(10))
-		if err != nil {
-			return "", fmt.Errorf("failed to generate secure random number: %v", err)
-		}
-		otp.WriteString(num.String())
+func generateRandomOTP() (string, error) {
+	// Generate a random integer between 100000 and 999999
+	n, err := rand.Int(rand.Reader, big.NewInt(900000))
+	if err != nil {
+		return "", err
 	}
-
-	return otp.String(), nil
+	
+	// Add 100000 to ensure we get a 6-digit number
+	otp := n.Int64() + 100000
+	
+	return fmt.Sprintf("%d", otp), nil
 }
 
 // ValidateOTPInput checks if the OTP meets security requirements
@@ -511,7 +551,7 @@ func generateSessionToken() string {
 	// Generate 32 random bytes
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		console.Error(fmt.Sprintf("Failed to generate session token: %v", err))
+		console.Error("Failed to generate session token: " + err.Error())
 		return ""
 	}
 	
@@ -546,13 +586,20 @@ func (s *OTPService) CheckVerification(email string) (bool, error) {
 }
 
 // ClearVerification removes verification data for an email
-func (s *OTPService) ClearVerification(email string) {
-	s.ClearVerifiedEmail(email)
+func (s *OTPService) ClearVerification(verificationCookie string) {
+	s.ClearVerifiedEmail(verificationCookie)
 }
 
 // ClearEmailVerification is an alias for ClearVerification
-func (s *OTPService) ClearEmailVerification(email string) {
-	s.ClearVerifiedEmail(email)
+func (s *OTPService) ClearEmailVerification(verificationCookie string) {
+	s.ClearVerifiedEmail(verificationCookie)
+}
+
+// VerificationInfo represents data about a verified email
+type VerificationInfo struct {
+	Email      string    `json:"email"`
+	VerifiedAt time.Time `json:"verifiedAt"`
+	Method     string    `json:"method"`
 }
 
 // generateVerificationCookie creates a cookie for email verification
@@ -578,20 +625,12 @@ func (s *OTPService) generateVerificationCookieV2(info VerificationInfo) (string
 
 // CheckVerification verifies the cookie and returns the verification info
 func (s *OTPService) CheckVerificationCookie(email string, cookie string) (*VerificationInfo, error) {
-	// Check in-memory cache first (for fastest verification)
-	if info, exists := s.verifiedEmails[email]; exists {
-		return &VerificationInfo{
-			Email:      email,
-			VerifiedAt: info.verifiedAt,
-			Method:     "OTP",
-		}, nil
-	}
-
-	// If no memory entry or expired, check the cookie
+	// If cookie is missing, we can't proceed
 	if cookie == "" {
 		return nil, fmt.Errorf("no verification cookie provided")
 	}
 
+	// First extract information from the cookie, since it's our authoritative source
 	// Decode cookie
 	combined, err := base64.URLEncoding.DecodeString(cookie)
 	if err != nil {
@@ -619,10 +658,21 @@ func (s *OTPService) CheckVerificationCookie(email string, cookie string) (*Veri
 	if err := json.Unmarshal(data, &verificationInfo); err != nil {
 		return nil, fmt.Errorf("failed to deserialize verification data: %v", err)
 	}
-
-	// Check if the email matches
-	if verificationInfo.Email != email {
+	
+	// If email wasn't provided, use the one from the cookie
+	if email == "" {
+		email = verificationInfo.Email
+	} else if verificationInfo.Email != email {
+		// If an email was provided but doesn't match the cookie, that's an error
 		return nil, fmt.Errorf("email mismatch in verification cookie")
+	}
+	
+	// As a backup, check the in-memory cache using the email from the cookie
+	if verifiedInfo, exists := s.verifiedEmails[email]; exists {
+		// Use the most recent verification timestamp between cookie and memory
+		if verifiedInfo.verifiedAt.After(verificationInfo.VerifiedAt) {
+			verificationInfo.VerifiedAt = verifiedInfo.verifiedAt
+		}
 	}
 
 	return &verificationInfo, nil
@@ -636,10 +686,4 @@ func (s *OTPService) incrementFailedAttempts(email string) {
 // resetFailedAttempts resets the failed attempts for an email
 func (s *OTPService) resetFailedAttempts(email string) {
 	s.failedAttempts[email] = 0
-}
-
-type VerificationInfo struct {
-	Email      string    `json:"email"`
-	VerifiedAt time.Time `json:"verifiedAt"`
-	Method     string    `json:"method"`
 }

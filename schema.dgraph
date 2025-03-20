@@ -12,6 +12,7 @@
 <credentialPublicKey>: string .
 <dateJoined>: datetime @index(day) .
 <details>: string .
+<deviceId>: string @index(exact) .
 <deviceInfo>: string .
 <deviceName>: string .
 <deviceType>: string .
@@ -21,7 +22,7 @@
 <dgraph.graphql.schema>: string .
 <dgraph.graphql.xid>: string @index(exact) @upsert .
 <dgraph_type>: [string] @index(exact) .
-<did>: string @index(exact) .
+<did>: string @index(exact) @index(hash) .
 <email>: string @index(exact) .
 <emailVerified>: datetime .
 <expires>: datetime .
@@ -31,16 +32,19 @@
 <hasWebAuthn>: bool .
 <ipAddress>: string .
 <isBiometric>: bool .
+<isRevoked>: bool .
+<isVerified>: bool .
 <lastAuthTime>: datetime @index(hour) .
 <lastFailedLogin>: datetime .
+<lastSyncTime>: datetime .
 <lastUsed>: datetime .
 <lockedUntil>: datetime .
 <metadata>: uid .
+<n>: string @index(exact) .
 <name>: string @index(exact) .
 <operationType>: string @index(exact) .
-<passwordHash>: string .
-<passwordSalt>: string .
 <permissions>: [string] .
+<publicKey>: string .
 <recoveryEmail>: string @index(exact) .
 <requestMethod>: string .
 <requestParams>: string .
@@ -58,6 +62,7 @@
 <updatedAt>: datetime .
 <user>: uid @reverse .
 <userAgent>: string .
+<userHash>: string @index(exact) .
 <userId>: string @index(hash) .
 <users>: [uid] @reverse .
 <verificationMethod>: string .
@@ -103,6 +108,15 @@ type <Device> {
 	updatedAt
 	user
 }
+type <DeviceCredential> {
+	did
+	userHash
+	deviceId
+	publicKey
+	lastSyncTime
+	isVerified
+	isRevoked
+}
 type <Role> {
 	name
 	permissions
@@ -121,8 +135,6 @@ type <User> {
 	status
 	hasWebAuthn
 	hasPassphrase
-	passwordHash
-	passwordSalt
 	recoveryEmail
 	failedLoginAttempts
 	lastFailedLogin

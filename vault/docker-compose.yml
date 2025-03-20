@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  vault:
+    image: hashicorp/vault:1.15.6
+    container_name: modus-vault
+    ports:
+      - "8200:8200"
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=dev-only-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    command: server -dev
+    volumes:
+      - ./data:/vault/data

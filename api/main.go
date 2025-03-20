@@ -28,6 +28,7 @@ func GenerateOTP(req *auth.GenerateOTPRequest) (*auth.GenerateOTPResponse, error
 
 // @modus:function
 func VerifyOTP(req *auth.VerifyOTPRequest) (*auth.VerifyOTPResponse, error) {
+	console.Debug("Processing OTP verification - email may be provided in request or extracted from cookie")
 	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	return otpService.VerifyOTP(req)
@@ -53,61 +54,135 @@ func VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) (*auth.WebAuthnVerifi
 }
 
 // @modus:function
-func SetPassphrase(req *auth.SetPassphraseRequest) (*auth.SetPassphraseResponse, error) {
-	console.Debug("Processing Set Passphrase request")
+func RegisterPassphrase(req *auth.RegisterPassphraseRequest) (*auth.RegisterPassphraseResponse, error) {
+	console.Debug("Processing Register Passphrase request - using verification cookie for email retrieval")
 	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	roleService := auth.NewRoleService(connection)
 	
-	// Initialize email encryption
-	emailEncryption, err := auth.NewEmailEncryption()
-	if err != nil {
-		console.Error("Failed to initialize email encryption: " + err.Error())
-		return &auth.SetPassphraseResponse{
-			Success: false,
-			Error:   "Internal server error initializing encryption",
-		}, err
-	}
+	// Use the new fallback encryption that won't fail if the environment variable is missing
+	emailEncryption := auth.NewEmailEncryptionWithFallback()
 	
-	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption)
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption, emailService)
 	if err != nil {
 		console.Error("Failed to initialize passphrase service: " + err.Error())
-		return &auth.SetPassphraseResponse{
+		return &auth.RegisterPassphraseResponse{
 			Success: false,
 			Error:   "Internal server error initializing passphrase service",
 		}, err
 	}
 	
-	return passphraseService.SetPassphrase(req)
+	return passphraseService.RegisterPassphrase(req)
 }
 
 // @modus:function
-func VerifyPassphrase(req *auth.VerifyPassphraseRequest) (*auth.VerifyPassphraseResponse, error) {
-	console.Debug("Processing Verify Passphrase request")
+func SigninPassphrase(req *auth.SigninPassphraseRequest) (*auth.SigninPassphraseResponse, error) {
+	console.Debug("Processing Signin Passphrase request - using cookie for email retrieval")
 	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	roleService := auth.NewRoleService(connection)
 	
-	// Initialize email encryption
-	emailEncryption, err := auth.NewEmailEncryption()
-	if err != nil {
-		console.Error("Failed to initialize email encryption: " + err.Error())
-		return &auth.VerifyPassphraseResponse{
-			Success: false,
-			Error:   "Internal server error initializing encryption",
-		}, err
-	}
+	// Use the fallback encryption that won't fail if the environment variable is missing
+	emailEncryption := auth.NewEmailEncryptionWithFallback()
 	
-	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption)
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption, emailService)
 	if err != nil {
 		console.Error("Failed to initialize passphrase service: " + err.Error())
-		return &auth.VerifyPassphraseResponse{
+		return &auth.SigninPassphraseResponse{
 			Success: false,
 			Error:   "Internal server error initializing passphrase service",
 		}, err
 	}
 	
-	return passphraseService.VerifyPassphrase(req)
+	return passphraseService.SigninPassphrase(req)
+}
+
+// @modus:function
+func RecoveryPassphrase(req *auth.RecoveryPassphraseRequest) (*auth.RecoveryPassphraseResponse, error) {
+	console.Debug("Processing Recovery Passphrase request - using cookie for email retrieval")
+	emailService := email.NewService(connection)
+	otpService := auth.NewOTPService(connection, emailService)
+	roleService := auth.NewRoleService(connection)
+	
+	// Use the fallback encryption that won't fail if the environment variable is missing
+	emailEncryption := auth.NewEmailEncryptionWithFallback()
+	
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption, emailService)
+	if err != nil {
+		console.Error("Failed to initialize passphrase service: " + err.Error())
+		return &auth.RecoveryPassphraseResponse{
+			Success: false,
+			Error:   "Internal server error initializing passphrase service",
+		}, err
+	}
+	
+	return passphraseService.RecoveryPassphrase(req)
+}
+
+// @modus:function
+func ResetPassphrase(req *auth.ResetPassphraseRequest) (*auth.ResetPassphraseResponse, error) {
+	console.Debug("Processing Reset Passphrase request - using verification cookie for email retrieval")
+	emailService := email.NewService(connection)
+	otpService := auth.NewOTPService(connection, emailService)
+	roleService := auth.NewRoleService(connection)
+	
+	// Use the fallback encryption that won't fail if the environment variable is missing
+	emailEncryption := auth.NewEmailEncryptionWithFallback()
+	
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption, emailService)
+	if err != nil {
+		console.Error("Failed to initialize passphrase service: " + err.Error())
+		return &auth.ResetPassphraseResponse{
+			Success: false,
+			Error:   "Internal server error initializing passphrase service",
+		}, err
+	}
+	
+	return passphraseService.ResetPassphrase(req)
+}
+
+// @modus:function
+func UpdateUserDetails(req *auth.UserDetailsRequest) (*auth.UserDetailsResponse, error) {
+	console.Debug("Processing Update User Details request - using cookie for email retrieval")
+	emailService := email.NewService(connection)
+	otpService := auth.NewOTPService(connection, emailService)
+	roleService := auth.NewRoleService(connection)
+	
+	// Use the fallback encryption that won't fail if the environment variable is missing
+	emailEncryption := auth.NewEmailEncryptionWithFallback()
+	
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption, emailService)
+	if err != nil {
+		console.Error("Failed to initialize passphrase service: " + err.Error())
+		return &auth.UserDetailsResponse{
+			Success: false,
+			Error:   "Internal server error initializing passphrase service",
+		}, err
+	}
+	
+	return passphraseService.UpdateUserDetails(req)
+}
+
+// @modus:function
+func RegisterUserDetails(req *auth.RegisterUserDetailsRequest) (*auth.UserDetailsResponse, error) {
+	console.Debug("Processing Register User Details request")
+	emailService := email.NewService(connection)
+	otpService := auth.NewOTPService(connection, emailService)
+	roleService := auth.NewRoleService(connection)
+	
+	// Use the fallback encryption that won't fail if the environment variable is missing
+	emailEncryption := auth.NewEmailEncryptionWithFallback()
+	
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption, emailService)
+	if err != nil {
+		console.Error("Failed to initialize passphrase service: " + err.Error())
+		return &auth.UserDetailsResponse{
+			Success: false,
+			Error:   "Internal server error initializing passphrase service",
+		}, err
+	}
+	
+	return passphraseService.RegisterUserDetails(req)
 }
 
 // getUserTimestamps retrieves user timestamps for analytics and activity tracking

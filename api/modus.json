@@ -18,6 +18,13 @@
       "headers": {
         "Authorization": "Bearer {{EMAIL_API_KEY}}"
       }
+    },
+    "vault": {
+      "type": "http",
+      "baseUrl": "http://localhost:8200/v1/",
+      "headers": {
+        "X-Vault-Token": "{{VAULT_TOKEN}}"
+      }
     }
   }
 }

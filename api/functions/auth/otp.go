@@ -1,11 +1,16 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
@@ -13,25 +18,97 @@ import (
 )
 
 type OTPService struct {
-	conn        string
-	emailSender EmailSender
+	conn           string
+	emailSender    EmailSender
+	secretKey      []byte             // Secret key for HMAC operations
+	verifiedEmails map[string]struct {
+		verifiedAt time.Time
+	}
+	mu            sync.Mutex // Mutex for thread safety
+	failedAttempts map[string]int // Store for tracking failed attempts
 }
 
 type EmailSender interface {
 	SendOTP(to, otp string) error
 }
 
+// NewOTPService creates a new OTP service
 func NewOTPService(conn string, emailSender EmailSender) *OTPService {
+	// Get encryption key from environment
+	encryptionKey := os.Getenv("MODUS_ENCRYPTION_KEY")
+	var secretKey []byte
+	
+	if encryptionKey != "" {
+		// Try to decode from base64 if it's in that format
+		var err error
+		secretKey, err = base64.StdEncoding.DecodeString(encryptionKey)
+		if err != nil {
+			// If not base64, use the string directly
+			secretKey = []byte(encryptionKey)
+			console.Info("Using MODUS_ENCRYPTION_KEY as raw bytes")
+		} else {
+			console.Info("Using MODUS_ENCRYPTION_KEY from environment (base64 decoded)")
+		}
+	} else {
+		// Fallback to a static key if environment variable is not set
+		console.Warn("MODUS_ENCRYPTION_KEY not found in environment, using fallback static key")
+		secretKey = []byte("nfe-modus-static-key-for-hmac-operations-2025")
+	}
+	
 	return &OTPService{
-		conn:        conn,
-		emailSender: emailSender,
+		conn:          conn,
+		emailSender:   emailSender,
+		secretKey:     secretKey,
+		verifiedEmails: make(map[string]struct {
+			verifiedAt time.Time
+		}),
+		mu: sync.Mutex{},
+		failedAttempts: make(map[string]int),
 	}
 }
 
+// StoreVerifiedEmail stores a verified email in memory with the current timestamp
+func (s *OTPService) StoreVerifiedEmail(email string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.verifiedEmails[email] = struct {
+		verifiedAt time.Time
+	}{
+		verifiedAt: time.Now(),
+	}
+	console.Debug(fmt.Sprintf("Stored verified email in memory: %s", email))
+}
+
+// GetVerifiedEmail retrieves a verified email from memory along with its verification time
+// Returns the email, verification time, and whether it exists
+func (s *OTPService) GetVerifiedEmail(email string) (string, time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	info, exists := s.verifiedEmails[email]
+	if !exists {
+		return "", time.Time{}, false
+	}
+	
+	return email, info.verifiedAt, true
+}
+
+// ClearVerifiedEmail removes a verified email from memory
+func (s *OTPService) ClearVerifiedEmail(email string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	delete(s.verifiedEmails, email)
+	console.Debug(fmt.Sprintf("Cleared verified email from memory: %s", email))
+}
+
 type OTP struct {
-	Email     string    `json:"email"`
-	Code      string    `json:"code"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Email       string    `json:"email"`
+	Code        string    `json:"code"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Attempts    int       `json:"attempts"`
+	LastRequest time.Time `json:"lastRequest,omitempty"`
 }
 
 type GenerateOTPRequest struct {
@@ -41,18 +118,21 @@ type GenerateOTPRequest struct {
 type GenerateOTPResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+	Cookie  string `json:"cookie,omitempty"` // Encrypted cookie value
 }
 
 type VerifyOTPRequest struct {
-	Email string `json:"email"`
-	OTP   string `json:"otp"`
+	Email  string `json:"email"`
+	OTP    string `json:"otp"`
+	Cookie string `json:"cookie"` // Encrypted cookie value
 }
 
 type VerifyOTPResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Token   string `json:"token,omitempty"`
-	User    *User  `json:"user,omitempty"`
+	Success        bool   `json:"success"`
+	Message        string `json:"message"`
+	Token          string `json:"token,omitempty"`
+	User           *User  `json:"user,omitempty"`
+	VerificationCookie string `json:"verificationCookie,omitempty"`
 }
 
 const (
@@ -60,249 +140,311 @@ const (
 	maxAttempts = 5
 	otpTimeout  = 10 * time.Minute
 	otpCooldown = 1 * time.Minute  // Minimum time between OTP requests
+	cookieName  = "nfe_otp_data"
 )
 
 // Error messages
 const (
 	errUserNotFound      = "user not found or account is not active"
 	errTooManyAttempts   = "too many failed attempts, please request a new OTP"
-	errOTPNotSet         = "OTP creation time not set, please request a new OTP"
+	errOTPNotSet         = "OTP not set, please request a new OTP"
 	errOTPExpired        = "OTP has expired (after 10 minutes), please request a new one"
 	errInvalidOTP        = "invalid OTP"
-	errInvalidOTPTime    = "invalid OTP creation time: %v"
-	errFailedAttempts    = "failed to increment failed attempts: %v"
+	errInvalidCookie     = "invalid or missing cookie data"
+	errRateLimited       = "please wait before requesting another OTP"
 )
 
 func (s *OTPService) GenerateOTP(req *GenerateOTPRequest) (*GenerateOTPResponse, error) {
 	now := time.Now()
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	
+	if email == "" {
+		return nil, fmt.Errorf("email is required")
+	}
+	
+	// Generate new OTP
 	otp, err := GenerateOTP()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate OTP: %v", err)
 	}
-
-	// Check if user exists
-	query := &dgraph.Query{
-		Query: `query userExists($email: string) {
-			user(func: eq(email, $email)) {
-				uid
-				status
-				otpCreatedAt
-				lastOTPRequestTime
-			}
-		}`,
-		Variables: map[string]string{
-			"$email": req.Email,
-		},
+	
+	// Create new OTP data
+	otpData := OTP{
+		Email:       email,
+		Code:        otp,
+		ExpiresAt:   now.Add(otpTimeout),
+		CreatedAt:   now,
+		Attempts:    0,
+		LastRequest: now,
 	}
-
-	resp, err := dgraph.ExecuteQuery(s.conn, query)
+	
+	// Encrypt OTP data for cookie
+	cookieValue, err := s.encryptOTPData(&otpData)
 	if err != nil {
-		console.Error("Failed to query user - email: " + req.Email + ", error: " + err.Error())
-		return nil, fmt.Errorf("failed to query user: %v", err)
+		return nil, fmt.Errorf("failed to encrypt OTP data: %v", err)
 	}
-
-	var result struct {
-		User []struct {
-			UID               string `json:"uid"`
-			Status           string `json:"status"`
-			OTPCreatedAt     string `json:"otpCreatedAt"`
-			LastOTPRequestTime string `json:"lastOTPRequestTime"`
-		} `json:"user"`
-	}
-
-	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
-		console.Error("Failed to parse response - email: " + req.Email + ", error: " + err.Error())
-		return nil, fmt.Errorf("failed to parse response: %v", err)
-	}
-
-	// If user exists, check status and rate limiting
-	if len(result.User) > 0 {
-		user := result.User[0]
-		
-		// Check account status
-		if user.Status != "active" {
-			console.Error("Account is not active - email: " + req.Email)
-			return &GenerateOTPResponse{
-				Success: false,
-				Message: "account is not active",
-			}, nil
-		}
-
-		// Check rate limiting if last OTP request time exists
-		if user.LastOTPRequestTime != "" {
-			lastRequest, err := time.Parse(time.RFC3339, user.LastOTPRequestTime)
-			if err == nil && time.Since(lastRequest) < otpCooldown {
-				console.Error("Rate limited - email: " + req.Email + ", last request: " + lastRequest.String())
-				return &GenerateOTPResponse{
-					Success: false,
-					Message: "please wait before requesting another OTP",
-				}, nil
-			}
-		}
-
-		// Update existing user with new OTP
-		mutation := &dgraph.Mutation{
-			SetNquads: fmt.Sprintf(`
-				<%s> <otp> "%s" .
-				<%s> <otpCreatedAt> "%s" .
-				<%s> <lastOTPRequestTime> "%s" .
-				<%s> <failedAttempts> "0" .
-			`, user.UID, otp, user.UID, now.Format(time.RFC3339), 
-			   user.UID, now.Format(time.RFC3339), user.UID),
-		}
-
-		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
-			return nil, fmt.Errorf("failed to update user OTP: %v", err)
-		}
-	} else {
-		// Create new user
-		mutation := &dgraph.Mutation{
-			SetNquads: fmt.Sprintf(`
-				_:user <dgraph.type> "User" .
-				_:user <email> "%s" .
-				_:user <otp> "%s" .
-				_:user <otpCreatedAt> "%s" .
-				_:user <lastOTPRequestTime> "%s" .
-				_:user <status> "active" .
-				_:user <dateJoined> "%s" .
-				_:user <failedAttempts> "0" .
-				_:user <verified> "false" .
-			`, req.Email, otp, now.Format(time.RFC3339), 
-			   now.Format(time.RFC3339), now.Format(time.RFC3339)),
-		}
-
-		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
-			return nil, fmt.Errorf("failed to create user: %v", err)
-		}
-	}
-
-	if err := s.emailSender.SendOTP(req.Email, otp); err != nil {
+	
+	// Send OTP via email
+	if err := s.emailSender.SendOTP(email, otp); err != nil {
 		return nil, fmt.Errorf("failed to send OTP email: %v", err)
 	}
-
+	
+	console.Info(fmt.Sprintf("OTP generated for %s: %s", email, otp))
+	
 	return &GenerateOTPResponse{
 		Success: true,
 		Message: "OTP sent successfully",
+		Cookie:  cookieValue,
 	}, nil
 }
 
 func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error) {
-	now := time.Now()
+	email := req.Email
+	if email == "" {
+		return &VerifyOTPResponse{
+			Success: false,
+			Message: "Email is required",
+		}, nil
+	}
 
-	console.Info("Verifying OTP for email: " + req.Email)
+	if req.OTP == "" {
+		return &VerifyOTPResponse{
+			Success: false,
+			Message: "OTP is required",
+		}, nil
+	}
 
+	// Decrypt and validate OTP cookie
+	var otpData OTP
+	var err error
+	
+	if req.Cookie != "" {
+		// If cookie provided, decrypt it
+		otpDataPtr, decryptErr := s.decryptOTPData(req.Cookie)
+		if decryptErr != nil {
+			return &VerifyOTPResponse{
+				Success: false,
+				Message: "Invalid OTP cookie",
+			}, nil
+		}
+		otpData = *otpDataPtr
+	} else {
+		// If no cookie, we can't proceed
+		return &VerifyOTPResponse{
+			Success: false,
+			Message: "OTP verification failed - no valid cookie",
+		}, nil
+	}
+
+	// Check if OTP has expired
+	if time.Now().After(otpData.ExpiresAt) {
+		return &VerifyOTPResponse{
+			Success: false,
+			Message: "OTP has expired",
+		}, nil
+	}
+
+	// Check if OTP is valid
+	if req.OTP != otpData.Code {
+		// Increment failed attempts
+		s.incrementFailedAttempts(email)
+		return &VerifyOTPResponse{
+			Success: false,
+			Message: "Invalid OTP",
+		}, nil
+	}
+
+	// OTP verification successful!
+	
+	// Create verification timestamp
+	now := time.Now().UTC()
+	
+	// Record verification in memory store
+	s.StoreVerifiedEmail(email)
+	
+	// Generate cookie for web client
+	cookieString, cookieGenErr := s.generateVerificationCookieV2(VerificationInfo{
+		Email:      email,
+		VerifiedAt: now,
+		Method:     "OTP",
+	})
+	if cookieGenErr != nil {
+		console.Error("Failed to generate verification cookie: " + cookieGenErr.Error())
+		// Continue anyway, verification was successful
+	}
+	
+	// Reset failed attempts counter
+	s.resetFailedAttempts(email)
+	
+	// Get or create user record
+	userData, err := s.getUserByEmail(email)
+	if err != nil {
+		// If user doesn't exist, create a new one
+		userData, err = s.createUser(email)
+		if err != nil {
+			console.Error("Failed to create user record: " + err.Error())
+			return &VerifyOTPResponse{
+				Success: false,
+				Message: "Failed to create user record",
+			}, nil
+		}
+	}
+	
+	// Generate token and user object for response
+	tokenString := generateSessionToken()
+	userObj := &User{
+		ID:    userData.UID,
+		Email: email,
+	}
+	
+	// Return success response
+	return &VerifyOTPResponse{
+		Success: true,
+		Message: "OTP verification successful",
+		Token: tokenString,
+		VerificationCookie: cookieString,
+		User: userObj,
+	}, nil
+}
+
+// Helper functions
+
+// Encrypt OTP data for cookie
+func (s *OTPService) encryptOTPData(otpData *OTP) (string, error) {
+	// Serialize OTP data to JSON
+	data, err := json.Marshal(otpData)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize OTP data: %v", err)
+	}
+	
+	// Generate HMAC for data integrity
+	h := hmac.New(sha256.New, s.secretKey)
+	h.Write(data)
+	hmacSum := h.Sum(nil)
+	
+	// Combine HMAC and data, then base64 encode
+	combined := append(hmacSum, data...)
+	encoded := base64.StdEncoding.EncodeToString(combined)
+	
+	return encoded, nil
+}
+
+// Decrypt and validate OTP data from cookie
+func (s *OTPService) decryptOTPData(cookieValue string) (*OTP, error) {
+	// Decode base64
+	combined, err := base64.StdEncoding.DecodeString(cookieValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode cookie: %v", err)
+	}
+	
+	// Split HMAC and data
+	if len(combined) < sha256.Size {
+		return nil, fmt.Errorf("invalid cookie format")
+	}
+	
+	hmacSum := combined[:sha256.Size]
+	data := combined[sha256.Size:]
+	
+	// Verify HMAC
+	h := hmac.New(sha256.New, s.secretKey)
+	h.Write(data)
+	expectedHMAC := h.Sum(nil)
+	
+	if !hmac.Equal(hmacSum, expectedHMAC) {
+		return nil, fmt.Errorf("invalid cookie signature")
+	}
+	
+	// Deserialize OTP data
+	var otpData OTP
+	if err := json.Unmarshal(data, &otpData); err != nil {
+		return nil, fmt.Errorf("failed to deserialize OTP data: %v", err)
+	}
+	
+	return &otpData, nil
+}
+
+// User data type for consistent response
+type UserData struct {
+	UID string
+}
+
+// Get user by email from database
+func (s *OTPService) getUserByEmail(email string) (*UserData, error) {
 	query := &dgraph.Query{
-		Query: `query verifyOTP($email: string, $otp: string) {
-			user(func: eq(email, $email), first: 1) {
+		Query: `query userExists($email: string) {
+			user(func: eq(email, $email)) {
 				uid
-				email
-				otp
-				otpCreatedAt
-				failedAttempts
-				status
 			}
 		}`,
 		Variables: map[string]string{
-			"$email": req.Email,
-			"$otp":   req.OTP,
+			"$email": email,
 		},
 	}
-
+	
 	resp, err := dgraph.ExecuteQuery(s.conn, query)
 	if err != nil {
-		console.Error("Failed to query user - email: " + req.Email + ", error: " + err.Error())
-		return nil, fmt.Errorf("failed to query user: %v", err)
+		return nil, err
 	}
-
+	
 	var result struct {
 		User []struct {
-			UID           string `json:"uid"`
-			Email         string `json:"email"`
-			OTP           string `json:"otp"`
-			OTPCreatedAt  string `json:"otpCreatedAt"`
-			FailedAttempts int    `json:"failedAttempts"`
-			Status        string `json:"status"`
+			UID string `json:"uid"`
 		} `json:"user"`
 	}
-
+	
 	if err := json.Unmarshal([]byte(resp.Json), &result); err != nil {
-		console.Error("Failed to parse response - email: " + req.Email + ", error: " + err.Error())
-		return nil, fmt.Errorf("failed to parse response: %v", err)
+		return nil, err
 	}
-
+	
 	if len(result.User) == 0 {
-		console.Error("User not found - email: " + req.Email)
-		return nil, fmt.Errorf("invalid email or OTP")
+		return nil, fmt.Errorf("user not found")
 	}
+	
+	return &UserData{UID: result.User[0].UID}, nil
+}
 
-	user := result.User[0]
-
-	// Check account status
-	if user.Status != "active" {
-		console.Error("Account is not active - email: " + req.Email)
-		return nil, fmt.Errorf("account is not active")
-	}
-
-	// Check failed attempts
-	if HasExceededMaxAttempts(user.FailedAttempts) {
-		console.Error("Too many failed attempts - email: " + req.Email + ", attempts: " + fmt.Sprint(user.FailedAttempts))
-		return nil, fmt.Errorf("too many failed attempts")
-	}
-
-	// Check OTP expiry
-	otpCreatedAt, err := time.Parse(time.RFC3339, user.OTPCreatedAt)
-	if err != nil {
-		console.Error("Invalid OTP creation time - email: " + req.Email + ", time: " + user.OTPCreatedAt + ", error: " + err.Error())
-		return nil, fmt.Errorf("invalid OTP")
-	}
-
-	if IsOTPExpired(otpCreatedAt) {
-		console.Error("OTP expired - email: " + req.Email + ", created: " + otpCreatedAt.String())
-		return nil, fmt.Errorf("OTP has expired")
-	}
-
-	// Verify OTP
-	if user.OTP != req.OTP {
-		// Increment failed attempts
-		mutation := &dgraph.Mutation{
-			SetNquads: fmt.Sprintf("<%s> <failedAttempts> \"%d\" .", user.UID, user.FailedAttempts+1),
-		}
-		if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
-			console.Error("Failed to increment attempts - email: " + req.Email + ", error: " + err.Error())
-			return nil, fmt.Errorf("failed to update attempts")
-		}
-		console.Error("Invalid OTP - email: " + req.Email + ", attempts: " + fmt.Sprint(user.FailedAttempts+1))
-		LogAuthAttempt(req.Email, "verify", false, map[string]string{"otp": req.OTP})
-		return nil, fmt.Errorf("invalid OTP")
-	}
-
-	// Clear OTP and update verification status
+// Create a new user in the database
+func (s *OTPService) createUser(email string) (*UserData, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	
 	mutation := &dgraph.Mutation{
 		SetNquads: fmt.Sprintf(`
-			<%s> <otp> "" .
+			_:user <dgraph.type> "User" .
+			_:user <email> "%s" .
+			_:user <status> "active" .
+			_:user <dateJoined> "%s" .
+			_:user <verified> "true" .
+			_:user <failedLoginAttempts> "0" .
+		`, email, now),
+	}
+	
+	resp, err := dgraph.ExecuteMutations(s.conn, mutation)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Extract the UID of the new user
+	for _, uid := range resp.Uids {
+		return &UserData{UID: uid}, nil
+	}
+	
+	return nil, fmt.Errorf("failed to create user")
+}
+
+// updateUserVerification updates a user's verification status
+// Note: Currently unused but kept for API compatibility and future use
+func (s *OTPService) updateUserVerification(user *UserData, now time.Time) error {
+	// Update verification status in Dgraph
+	mutation := &dgraph.Mutation{
+		SetNquads: fmt.Sprintf(`
 			<%s> <verified> "true" .
-			<%s> <failedAttempts> "0" .
+			<%s> <emailVerified> "%s" .
 			<%s> <lastAuthTime> "%s" .
-		`, user.UID, user.UID, user.UID, user.UID, now.Format(time.RFC3339)),
+		`, user.UID, user.UID, now.Format(time.RFC3339), user.UID, now.Format(time.RFC3339)),
 	}
-
-	if _, err := dgraph.ExecuteMutations(s.conn, mutation); err != nil {
-		console.Error("Failed to update user - email: " + req.Email + ", error: " + err.Error())
-		return nil, fmt.Errorf("failed to update user")
-	}
-
-	console.Info("OTP verified successfully - email: " + req.Email)
-	LogAuthAttempt(req.Email, "verify", true, map[string]string{"otp": req.OTP})
-
-	return &VerifyOTPResponse{
-		Success: true,
-		Message: "OTP verified successfully",
-		Token:   generateSessionToken(),
-		User: &User{
-			ID:    user.UID,
-			Email: user.Email,
-		},
-	}, nil
+	
+	_, err := dgraph.ExecuteMutations(s.conn, mutation)
+	return err
 }
 
 // GenerateOTP creates a cryptographically secure OTP
@@ -355,27 +497,149 @@ func HasExceededMaxAttempts(attempts int) bool {
 
 // LogAuthAttempt logs authentication attempts for audit purposes
 func LogAuthAttempt(email, action string, success bool, metadata map[string]string) {
-	logData := "Auth attempt - email: " + email + 
-		", action: " + action + 
-		", success: " + fmt.Sprint(success) + 
-		", metadata: " + fmt.Sprint(metadata)
-
+	// For now, just log to console
+	// In production, this should be logged to a proper audit system
 	if success {
-		console.Info(logData)
+		console.Info(fmt.Sprintf("Auth %s succeeded for %s", action, email))
 	} else {
-		console.Error(logData)
+		console.Error(fmt.Sprintf("Auth %s failed for %s", action, email))
 	}
 }
 
 // generateSessionToken generates a random session token
 func generateSessionToken() string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	// Generate 32 random bytes
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
+		console.Error(fmt.Sprintf("Failed to generate session token: %v", err))
 		return ""
 	}
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
+	
+	// Convert to base64
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+// GetVerificationInfo returns detailed verification information for an email
+func (s *OTPService) GetVerificationInfo(email string) *VerificationInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if data, exists := s.verifiedEmails[email]; exists {
+		return &VerificationInfo{
+			Email:      email,
+			VerifiedAt: data.verifiedAt,
+			Method:     "OTP",
+		}
 	}
-	return string(b)
+	
+	return nil
+}
+
+// CheckVerification checks if an email has been verified recently
+func (s *OTPService) CheckVerification(email string) (bool, error) {
+	// First check in-memory store
+	if _, exists := s.verifiedEmails[email]; exists {
+		return true, nil
+	}
+	
+	return false, fmt.Errorf("email not verified or verification expired")
+}
+
+// ClearVerification removes verification data for an email
+func (s *OTPService) ClearVerification(email string) {
+	s.ClearVerifiedEmail(email)
+}
+
+// ClearEmailVerification is an alias for ClearVerification
+func (s *OTPService) ClearEmailVerification(email string) {
+	s.ClearVerifiedEmail(email)
+}
+
+// generateVerificationCookie creates a cookie for email verification
+func (s *OTPService) generateVerificationCookieV2(info VerificationInfo) (string, error) {
+	// Create the verification data
+	data, err := json.Marshal(info)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize verification data: %v", err)
+	}
+
+	// Create HMAC
+	h := hmac.New(sha256.New, s.secretKey)
+	h.Write(data)
+	hmacSum := h.Sum(nil)
+
+	// Combine HMAC and data
+	combined := append(hmacSum, data...)
+
+	// Encode as base64 with URL-safe encoding
+	cookie := base64.URLEncoding.EncodeToString(combined)
+	return cookie, nil
+}
+
+// CheckVerification verifies the cookie and returns the verification info
+func (s *OTPService) CheckVerificationCookie(email string, cookie string) (*VerificationInfo, error) {
+	// Check in-memory cache first (for fastest verification)
+	if info, exists := s.verifiedEmails[email]; exists {
+		return &VerificationInfo{
+			Email:      email,
+			VerifiedAt: info.verifiedAt,
+			Method:     "OTP",
+		}, nil
+	}
+
+	// If no memory entry or expired, check the cookie
+	if cookie == "" {
+		return nil, fmt.Errorf("no verification cookie provided")
+	}
+
+	// Decode cookie
+	combined, err := base64.URLEncoding.DecodeString(cookie)
+	if err != nil {
+		return nil, fmt.Errorf("invalid verification cookie format")
+	}
+
+	if len(combined) <= sha256.Size {
+		return nil, fmt.Errorf("invalid verification cookie data")
+	}
+
+	hmacSum := combined[:sha256.Size]
+	data := combined[sha256.Size:]
+
+	// Verify HMAC
+	h := hmac.New(sha256.New, s.secretKey)
+	h.Write(data)
+	expectedHMAC := h.Sum(nil)
+
+	if !hmac.Equal(hmacSum, expectedHMAC) {
+		return nil, fmt.Errorf("invalid verification cookie signature")
+	}
+
+	// Deserialize verification data
+	var verificationInfo VerificationInfo
+	if err := json.Unmarshal(data, &verificationInfo); err != nil {
+		return nil, fmt.Errorf("failed to deserialize verification data: %v", err)
+	}
+
+	// Check if the email matches
+	if verificationInfo.Email != email {
+		return nil, fmt.Errorf("email mismatch in verification cookie")
+	}
+
+	return &verificationInfo, nil
+}
+
+// incrementFailedAttempts increments the failed attempts for an email
+func (s *OTPService) incrementFailedAttempts(email string) {
+	s.failedAttempts[email]++
+}
+
+// resetFailedAttempts resets the failed attempts for an email
+func (s *OTPService) resetFailedAttempts(email string) {
+	s.failedAttempts[email] = 0
+}
+
+type VerificationInfo struct {
+	Email      string    `json:"email"`
+	VerifiedAt time.Time `json:"verifiedAt"`
+	Method     string    `json:"method"`
 }

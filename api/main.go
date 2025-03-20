@@ -52,6 +52,66 @@ func VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) (*auth.WebAuthnVerifi
 	return webAuthnService.VerifyWebAuthn(req)
 }
 
+// @modus:function
+func SetPassphrase(req *auth.SetPassphraseRequest) (*auth.SetPassphraseResponse, error) {
+	console.Debug("Processing Set Passphrase request")
+	emailService := email.NewService(connection)
+	otpService := auth.NewOTPService(connection, emailService)
+	roleService := auth.NewRoleService(connection)
+	
+	// Initialize email encryption
+	emailEncryption, err := auth.NewEmailEncryption()
+	if err != nil {
+		console.Error("Failed to initialize email encryption: " + err.Error())
+		return &auth.SetPassphraseResponse{
+			Success: false,
+			Error:   "Internal server error initializing encryption",
+		}, err
+	}
+	
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption)
+	if err != nil {
+		console.Error("Failed to initialize passphrase service: " + err.Error())
+		return &auth.SetPassphraseResponse{
+			Success: false,
+			Error:   "Internal server error initializing passphrase service",
+		}, err
+	}
+	
+	return passphraseService.SetPassphrase(req)
+}
+
+// @modus:function
+func VerifyPassphrase(req *auth.VerifyPassphraseRequest) (*auth.VerifyPassphraseResponse, error) {
+	console.Debug("Processing Verify Passphrase request")
+	emailService := email.NewService(connection)
+	otpService := auth.NewOTPService(connection, emailService)
+	roleService := auth.NewRoleService(connection)
+	
+	// Initialize email encryption
+	emailEncryption, err := auth.NewEmailEncryption()
+	if err != nil {
+		console.Error("Failed to initialize email encryption: " + err.Error())
+		return &auth.VerifyPassphraseResponse{
+			Success: false,
+			Error:   "Internal server error initializing encryption",
+		}, err
+	}
+	
+	passphraseService, err := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption)
+	if err != nil {
+		console.Error("Failed to initialize passphrase service: " + err.Error())
+		return &auth.VerifyPassphraseResponse{
+			Success: false,
+			Error:   "Internal server error initializing passphrase service",
+		}, err
+	}
+	
+	return passphraseService.VerifyPassphrase(req)
+}
+
+// getUserTimestamps retrieves user timestamps for analytics and activity tracking
+// Note: Currently unused but retained for future reporting functionality
 func getUserTimestamps(email string) (*dgraph.Query, error) {
 	vars := map[string]string{
 		"$email": email,

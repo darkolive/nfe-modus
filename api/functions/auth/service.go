@@ -286,6 +286,8 @@ type EncryptedData struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+// encryptCredential encrypts a passkey credential using AES-GCM
+// Note: Currently unused but maintained for future passkey functionality
 func (s *Service) encryptCredential(credential *PasskeyCredential) ([]byte, error) {
 	keyID, key, err := km.getCurrentKey()
 	if err != nil {
@@ -327,6 +329,8 @@ func (s *Service) encryptCredential(credential *PasskeyCredential) ([]byte, erro
 	return json.Marshal(encData)
 }
 
+// decryptCredential decrypts a previously encrypted passkey credential
+// Note: Currently unused but maintained for future passkey functionality
 func (s *Service) decryptCredential(data []byte) (*PasskeyCredential, error) {
 	var encData EncryptedData
 	if err := json.Unmarshal(data, &encData); err != nil {

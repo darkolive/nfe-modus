@@ -6,8 +6,8 @@ import (
 	"unsafe"
 	"nfe-modus/api/functions/auth"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
-	"nfe-modus/api/functions/user"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
+	"nfe-modus/api/functions/user"
 	"time"
 )
 

@@ -268,11 +268,16 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	// Record verification in memory store
 	s.StoreVerifiedEmail(otpData.Email)
 	
-	// Generate cookie for web client
+	// Check if user already exists
+	userData, err := s.getUserByEmail(otpData.Email)
+	isNewUser := err != nil || userData == nil
+	
+	// Generate cookie for web client with isNewUser flag
 	cookieString, cookieGenErr := s.generateVerificationCookieV2(VerificationInfo{
 		Email:      otpData.Email,
 		VerifiedAt: now,
 		Method:     "OTP",
+		IsNewUser:  isNewUser,
 	})
 	if cookieGenErr != nil {
 		console.Error("Failed to generate verification cookie: " + cookieGenErr.Error())
@@ -283,16 +288,17 @@ func (s *OTPService) VerifyOTP(req *VerifyOTPRequest) (*VerifyOTPResponse, error
 	s.resetFailedAttempts(otpData.Email)
 	
 	// Get or create user record
-	userData, err := s.getUserByEmail(otpData.Email)
-	if err != nil {
-		// If user doesn't exist, create a new one
-		userData, err = s.createUser(otpData.Email)
-		if err != nil {
-			console.Error("Failed to create user record: " + err.Error())
-			return &VerifyOTPResponse{
-				Success: false,
-				Message: "Failed to create user record",
-			}, nil
+	if isNewUser {
+		// Create a new user record since one doesn't exist
+		console.Debug("Creating new user during OTP verification")
+		var createErr error
+		userData, createErr = s.createUser(otpData.Email)
+		if createErr != nil {
+			console.Error("Failed to create user: " + createErr.Error())
+			// Continue anyway, verification was successful
+			userData = &UserData{
+				UID: "",
+			}
 		}
 	}
 	
@@ -336,6 +342,15 @@ func (s *OTPService) encryptOTPData(otpData *OTP) (string, error) {
 
 // Decrypt and validate OTP data from cookie
 func (s *OTPService) decryptOTPData(cookieValue string) (*OTP, error) {
+	// Replace base64url specific characters with standard base64 characters
+	cookieValue = strings.ReplaceAll(cookieValue, "-", "+")
+	cookieValue = strings.ReplaceAll(cookieValue, "_", "/")
+	
+	// Add padding if needed
+	if padding := len(cookieValue) % 4; padding > 0 {
+		cookieValue += strings.Repeat("=", 4-padding)
+	}
+	
 	// Decode base64
 	combined, err := base64.StdEncoding.DecodeString(cookieValue)
 	if err != nil {
@@ -375,17 +390,36 @@ type UserData struct {
 
 // Get user by email from database
 func (s *OTPService) getUserByEmail(email string) (*UserData, error) {
-	query := &dgraph.Query{
-		Query: `query userExists($email: string) {
-			user(func: eq(email, $email)) {
-				uid
-			}
-		}`,
-		Variables: map[string]string{
-			"$email": email,
-		},
-	}
-	
+    // Check if we need to encrypt the email for database query
+    var queryEmail string
+    
+    // If the email is already encrypted, use it as is
+    if strings.HasPrefix(email, "enc:") {
+        queryEmail = email
+    } else {
+        // Try to encrypt the email for database query
+        emailEncryption := NewEmailEncryptionWithFallback()
+        encryptedEmail, encryptErr := emailEncryption.EncryptEmail(email)
+        if encryptErr == nil {
+            queryEmail = encryptedEmail
+            console.Debug("Email encrypted for database query: " + queryEmail)
+        } else {
+            console.Warn("Failed to encrypt email for query, using plaintext: " + encryptErr.Error())
+            queryEmail = email
+        }
+    }
+    
+    query := &dgraph.Query{
+        Query: `query userExists($email: string) {
+            user(func: eq(email, $email)) {
+                uid
+            }
+        }`,
+        Variables: map[string]string{
+            "$email": queryEmail,
+        },
+    }
+    
 	resp, err := dgraph.ExecuteQuery(s.conn, query)
 	if err != nil {
 		return nil, err
@@ -600,6 +634,7 @@ type VerificationInfo struct {
 	Email      string    `json:"email"`
 	VerifiedAt time.Time `json:"verifiedAt"`
 	Method     string    `json:"method"`
+	IsNewUser  bool      `json:"isNewUser,omitempty"`
 }
 
 // generateVerificationCookie creates a cookie for email verification

@@ -456,7 +456,7 @@ func (ps *PassphraseService) SigninPassphrase(req *SigninPassphraseRequest) (*Si
 	}
 
 	// Use passwordless authentication
-	isValid := ps.didService.VerifyPasswordlessDID(email, req.Passphrase, user.Did)
+	isValid := ps.didService.VerifyPasswordlessDID(user.Did, email, req.Passphrase)
 	if !isValid {
 		console.Debug("Invalid passphrase")
 		

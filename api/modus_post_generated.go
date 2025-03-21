@@ -4,11 +4,11 @@ package main
 
 import (
 	"unsafe"
-	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
-	"nfe-modus/api/functions/user"
-	"time"
-	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
 	"nfe-modus/api/functions/auth"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/http"
+	"nfe-modus/api/functions/user"
+	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
+	"time"
 )
 
 var __pins = make(map[unsafe.Pointer]int)
@@ -32,351 +32,346 @@ func __new(id int) unsafe.Pointer {
 		__pins[p]++
 		return p
 	case 4:
-		o := new(bool)
+		o := new(dgraph.Mutation)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 5:
-		o := new(dgraph.Mutation)
+		o := new(dgraph.Query)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 6:
-		o := new(dgraph.Query)
+		o := new(dgraph.Request)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 7:
-		o := new(dgraph.Request)
+		o := new(dgraph.Response)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 8:
-		o := new(dgraph.Response)
+		o := new(http.Header)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 9:
-		o := new(http.Header)
+		o := new(http.Headers)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 10:
-		o := new(http.Headers)
+		o := new(http.Request)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 11:
-		o := new(http.Request)
+		o := new(http.Response)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 12:
-		o := new(http.Response)
+		o := new(auth.GenerateOTPRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 13:
-		o := new(auth.GenerateOTPRequest)
+		o := new(auth.GenerateOTPResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 14:
-		o := new(auth.GenerateOTPResponse)
+		o := new(auth.RecoveryPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 15:
-		o := new(auth.RecoveryPassphraseRequest)
+		o := new(auth.RecoveryPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 16:
-		o := new(auth.RecoveryPassphraseResponse)
+		o := new(auth.RegisterPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 17:
-		o := new(auth.RegisterPassphraseRequest)
+		o := new(auth.RegisterPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 18:
-		o := new(auth.RegisterPassphraseResponse)
+		o := new(auth.RegisterUserDetailsRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 19:
-		o := new(auth.RegisterUserDetailsRequest)
+		o := new(auth.ResetPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 20:
-		o := new(auth.ResetPassphraseRequest)
+		o := new(auth.ResetPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 21:
-		o := new(auth.ResetPassphraseResponse)
+		o := new(auth.SigninPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 22:
-		o := new(auth.SigninPassphraseRequest)
+		o := new(auth.SigninPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 23:
-		o := new(auth.SigninPassphraseResponse)
+		o := new(auth.User)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 24:
-		o := new(auth.User)
+		o := new(auth.UserData)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 25:
-		o := new(auth.UserData)
+		o := new(auth.UserDetailsRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 26:
-		o := new(auth.UserDetailsRequest)
+		o := new(auth.UserDetailsResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 27:
-		o := new(auth.UserDetailsResponse)
+		o := new(auth.VerifyOTPRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 28:
-		o := new(auth.VerifyOTPRequest)
+		o := new(auth.VerifyOTPResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 29:
-		o := new(auth.VerifyOTPResponse)
+		o := new(auth.WebAuthnRegistrationRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 30:
-		o := new(auth.WebAuthnRegistrationRequest)
+		o := new(auth.WebAuthnRegistrationResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 31:
-		o := new(auth.WebAuthnRegistrationResponse)
+		o := new(auth.WebAuthnVerificationRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 32:
-		o := new(auth.WebAuthnVerificationRequest)
+		o := new(auth.WebAuthnVerificationResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 33:
-		o := new(auth.WebAuthnVerificationResponse)
+		o := new(user.GetUserTimestampsInput)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 34:
-		o := new(user.GetUserTimestampsInput)
+		o := new(user.UserTimestamps)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
 	case 35:
-		o := new(user.UserTimestamps)
-		p := unsafe.Pointer(o)
-		__pins[p]++
-		return p
-	case 36:
 		o := new(string)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 37:
+	case 36:
 		o := new([]*dgraph.Mutation)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 38:
+	case 37:
 		o := new([]*http.Header)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 39:
+	case 38:
 		o := new([]string)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 40:
+	case 39:
 		o := new(dgraph.Mutation)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 41:
+	case 40:
 		o := new(dgraph.Query)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 42:
+	case 41:
 		o := new(dgraph.Request)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 43:
+	case 42:
 		o := new(dgraph.Response)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 44:
+	case 43:
 		o := new(http.Header)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 45:
+	case 44:
 		o := new(http.Headers)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 46:
+	case 45:
 		o := new(http.Request)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 47:
+	case 46:
 		o := new(http.Response)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 48:
+	case 47:
 		o := new(map[string]*http.Header)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 49:
+	case 48:
 		o := new(map[string]string)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 50:
+	case 49:
 		o := new(auth.GenerateOTPRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 51:
+	case 50:
 		o := new(auth.GenerateOTPResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 52:
+	case 51:
 		o := new(auth.RecoveryPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 53:
+	case 52:
 		o := new(auth.RecoveryPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 54:
+	case 53:
 		o := new(auth.RegisterPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 55:
+	case 54:
 		o := new(auth.RegisterPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 56:
+	case 55:
 		o := new(auth.RegisterUserDetailsRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 57:
+	case 56:
 		o := new(auth.ResetPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 58:
+	case 57:
 		o := new(auth.ResetPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 59:
+	case 58:
 		o := new(auth.SigninPassphraseRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 60:
+	case 59:
 		o := new(auth.SigninPassphraseResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 61:
+	case 60:
 		o := new(auth.User)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 62:
+	case 61:
 		o := new(auth.UserData)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 63:
+	case 62:
 		o := new(auth.UserDetailsRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 64:
+	case 63:
 		o := new(auth.UserDetailsResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 65:
+	case 64:
 		o := new(auth.VerifyOTPRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 66:
+	case 65:
 		o := new(auth.VerifyOTPResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 67:
+	case 66:
 		o := new(auth.WebAuthnRegistrationRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 68:
+	case 67:
 		o := new(auth.WebAuthnRegistrationResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 69:
+	case 68:
 		o := new(auth.WebAuthnVerificationRequest)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 70:
+	case 69:
 		o := new(auth.WebAuthnVerificationResponse)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 71:
+	case 70:
 		o := new(user.GetUserTimestampsInput)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 72:
+	case 71:
 		o := new(user.UserTimestamps)
 		p := unsafe.Pointer(o)
 		__pins[p]++
 		return p
-	case 73:
+	case 72:
 		o := new(time.Time)
 		p := unsafe.Pointer(o)
 		__pins[p]++
@@ -399,27 +394,27 @@ func __make(id, size int) unsafe.Pointer {
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 37:
+	case 36:
 		o := make([]*dgraph.Mutation, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 38:
+	case 37:
 		o := make([]*http.Header, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 39:
+	case 38:
 		o := make([]string, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 48:
+	case 47:
 		o := make(map[string]*http.Header, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
 		return p
-	case 49:
+	case 48:
 		o := make(map[string]string, size)
 		p := unsafe.Pointer(&o)
 		__pins[p]++
@@ -432,9 +427,9 @@ func __make(id, size int) unsafe.Pointer {
 //go:export __read_map
 func __read_map(id int, m unsafe.Pointer) uint64 {
 	switch id {
-	case 48:
+	case 47:
 		return __doReadMap(*(*map[string]*http.Header)(m))
-	case 49:
+	case 48:
 		return __doReadMap(*(*map[string]string)(m))
 	}
 
@@ -461,9 +456,9 @@ func __doReadMap[M ~map[K]V, K comparable, V any](m M) uint64 {
 //go:export __write_map
 func __write_map(id int, m, keys, values unsafe.Pointer) {
 	switch id {
-	case 48:
+	case 47:
 		__doWriteMap(*(*map[string]*http.Header)(m), *(*[]string)(keys), *(*[]*http.Header)(values))
-	case 49:
+	case 48:
 		__doWriteMap(*(*map[string]string)(m), *(*[]string)(keys), *(*[]string)(values))
 	}
 }

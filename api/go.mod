@@ -7,8 +7,6 @@ require (
 	github.com/hypermodeinc/modus/sdk/go v0.17.2
 )
 
-require golang.org/x/crypto v0.36.0
-
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

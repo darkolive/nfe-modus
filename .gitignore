@@ -50,6 +50,9 @@ pids
 *.seed
 *.pid.lock
 
+# Vault directory
+vault/
+
 # Testing
 coverage/
 .coverage
@@ -74,4 +77,3 @@ data/
 # Misc
 .DS_Store
 Thumbs.db
-vault/

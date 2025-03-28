@@ -3,9 +3,14 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
+	"time"
 
+	"nfe-modus/api/functions/audit"
 	"nfe-modus/api/functions/auth/crypto"
+	"nfe-modus/api/functions/email"
 
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
 )
@@ -16,7 +21,7 @@ type Handler struct {
 }
 
 func NewHandler(conn string) *Handler {
-	emailService := NewEmailService(conn)
+	emailService := email.NewService(conn)
 	return &Handler{
 		service:    NewService(conn),
 		otpService: NewOTPService(conn, emailService),
@@ -252,6 +257,305 @@ func (h *Handler) HandleOTPVerification(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(resp)
 }
 
+type recoveryRequest struct {
+	Email              string `json:"email"`
+	VerificationCookie string `json:"verificationCookie"`
+	ClientIP           string `json:"clientIp,omitempty"`
+	UserAgent          string `json:"userAgent,omitempty"`
+	SessionID          string `json:"sessionId,omitempty"`
+}
+
+type resetRequest struct {
+	ResetToken  string `json:"resetToken"`
+	Email       string `json:"email"`
+	Passphrase  string `json:"passphrase"`
+	ClientIP    string `json:"clientIp,omitempty"`
+	UserAgent   string `json:"userAgent,omitempty"`
+	SessionID   string `json:"sessionId,omitempty"`
+}
+
+// HandlePasswordRecovery handles password recovery
+func (h *Handler) HandlePasswordRecovery(w http.ResponseWriter, r *http.Request) {
+	console.Debug("Handling password recovery request")
+	
+	// Only accept POST method
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req recoveryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		console.Error(fmt.Sprintf("Invalid request body for password recovery: %v", err))
+		
+		// Audit logging for invalid request
+		// Using PASSPHRASE_RESET_REQUEST_INVALID_REQUEST for consistency with the audit memory
+		auditService := audit.NewAuditService(h.service.conn)
+		_ = auditService.CreateAuditLog(audit.AuditLogData{
+			Action:         "PASSPHRASE_RESET_REQUEST_INVALID_REQUEST",
+			ActorID:        "unknown",
+			ActorType:      "user",
+			OperationType:  "recovery_initiate",
+			ClientIP:       getClientIP(r, req.ClientIP),
+			UserAgent:      getClientUserAgent(r, req.UserAgent),
+			SessionID:      req.SessionID,
+			Success:        false,
+			RequestMethod:  r.Method,
+			RequestPath:    r.URL.Path,
+			Details:        fmt.Sprintf("Invalid request body: %v", err),
+			AuditTimestamp: time.Now().UTC(),
+		})
+		
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	
+	// Create the recovery request for the service
+	recoveryReq := &RecoveryPassphraseRequest{
+		Email:              req.Email,
+		VerificationCookie: req.VerificationCookie,
+		ClientIP:           getClientIP(r, req.ClientIP),
+		UserAgent:          getClientUserAgent(r, req.UserAgent),
+		SessionID:          req.SessionID,
+	}
+	
+	// Initialize services
+	emailService := email.NewService(h.service.conn)
+	otpService := NewOTPService(h.service.conn, emailService)
+	roleService := NewRoleService(h.service.conn)
+	emailEncryption := NewEmailEncryptionWithFallback()
+	
+	passphraseService, err := NewPassphraseService(h.service.conn, otpService, roleService, emailEncryption, emailService)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to initialize passphrase service: %v", err))
+		
+		// Audit logging for service initialization error
+		auditService := audit.NewAuditService(h.service.conn)
+		_ = auditService.CreateAuditLog(audit.AuditLogData{
+			Action:         "PASSPHRASE_RESET_REQUEST_UNHANDLED_ERROR",
+			ActorID:        "unknown",
+			ActorType:      "user",
+			OperationType:  "recovery_initiate",
+			ClientIP:       getClientIP(r, req.ClientIP),
+			UserAgent:      getClientUserAgent(r, req.UserAgent),
+			SessionID:      req.SessionID,
+			Success:        false,
+			RequestMethod:  r.Method,
+			RequestPath:    r.URL.Path,
+			Details:        fmt.Sprintf("Service initialization error: %v", err),
+			AuditTimestamp: time.Now().UTC(),
+		})
+		
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	
+	// Process the recovery request
+	resp, err := passphraseService.RecoveryPassphrase(recoveryReq)
+	if err != nil {
+		console.Error(fmt.Sprintf("Error in recovery passphrase: %v", err))
+		
+		// Audit logging for unhandled error
+		auditService := audit.NewAuditService(h.service.conn)
+		_ = auditService.CreateAuditLog(audit.AuditLogData{
+			Action:         "PASSPHRASE_RESET_REQUEST_UNHANDLED_ERROR",
+			ActorID:        "unknown",
+			ActorType:      "user",
+			OperationType:  "recovery_initiate",
+			ClientIP:       getClientIP(r, req.ClientIP),
+			UserAgent:      getClientUserAgent(r, req.UserAgent),
+			SessionID:      req.SessionID,
+			Success:        false,
+			RequestMethod:  r.Method,
+			RequestPath:    r.URL.Path,
+			Details:        fmt.Sprintf("Unhandled error: %v", err),
+			AuditTimestamp: time.Now().UTC(),
+		})
+		
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	
+	// Return the response as JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// HandlePasswordReset handles password reset
+func (h *Handler) HandlePasswordReset(w http.ResponseWriter, r *http.Request) {
+	console.Debug("Handling password reset request")
+	
+	// Only accept POST method
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req resetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		console.Error(fmt.Sprintf("Invalid request body for password reset: %v", err))
+		
+		// Audit logging for invalid request
+		auditService := audit.NewAuditService(h.service.conn)
+		_ = auditService.CreateAuditLog(audit.AuditLogData{
+			Action:         "PASSPHRASE_RESET_INVALID_REQUEST",
+			ActorID:        "unknown",
+			ActorType:      "user",
+			OperationType:  "reset",
+			ClientIP:       getClientIP(r, req.ClientIP),
+			UserAgent:      getClientUserAgent(r, req.UserAgent),
+			SessionID:      req.SessionID,
+			Success:        false,
+			RequestMethod:  r.Method,
+			RequestPath:    r.URL.Path,
+			Details:        fmt.Sprintf("Invalid request body: %v", err),
+			AuditTimestamp: time.Now().UTC(),
+		})
+		
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	
+	// Validate the passphrase strength
+	if len(req.Passphrase) < 8 {
+		console.Warn("Passphrase too weak")
+		
+		// Audit logging for weak passphrase
+		auditService := audit.NewAuditService(h.service.conn)
+		_ = auditService.CreateAuditLog(audit.AuditLogData{
+			Action:         "PASSPHRASE_RESET_INVALID_PASSPHRASE",
+			ActorID:        "unknown",
+			ActorType:      "user",
+			OperationType:  "reset",
+			ClientIP:       getClientIP(r, req.ClientIP),
+			UserAgent:      getClientUserAgent(r, req.UserAgent),
+			SessionID:      req.SessionID,
+			Success:        false,
+			RequestMethod:  r.Method,
+			RequestPath:    r.URL.Path,
+			Details:        "Passphrase too weak",
+			AuditTimestamp: time.Now().UTC(),
+		})
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Passphrase too weak - must be at least 8 characters",
+		})
+		return
+	}
+	
+	// Create the reset request for the service
+	resetReq := &ResetPassphraseRequest{
+		ResetToken: req.ResetToken,
+		Email:      req.Email,
+		Passphrase: req.Passphrase,
+		ClientIP:   getClientIP(r, req.ClientIP),
+		UserAgent:  getClientUserAgent(r, req.UserAgent),
+		SessionID:  req.SessionID,
+	}
+	
+	// Initialize services
+	emailService := email.NewService(h.service.conn)
+	otpService := NewOTPService(h.service.conn, emailService)
+	roleService := NewRoleService(h.service.conn)
+	emailEncryption := NewEmailEncryptionWithFallback()
+	
+	passphraseService, err := NewPassphraseService(h.service.conn, otpService, roleService, emailEncryption, emailService)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to initialize passphrase service: %v", err))
+		
+		// Audit logging for service initialization error
+		auditService := audit.NewAuditService(h.service.conn)
+		_ = auditService.CreateAuditLog(audit.AuditLogData{
+			Action:         "PASSPHRASE_RESET_UNHANDLED_ERROR",
+			ActorID:        "unknown",
+			ActorType:      "user",
+			OperationType:  "reset",
+			ClientIP:       getClientIP(r, req.ClientIP),
+			UserAgent:      getClientUserAgent(r, req.UserAgent),
+			SessionID:      req.SessionID,
+			Success:        false,
+			RequestMethod:  r.Method,
+			RequestPath:    r.URL.Path,
+			Details:        fmt.Sprintf("Service initialization error: %v", err),
+			AuditTimestamp: time.Now().UTC(),
+		})
+		
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	
+	// Process the reset request
+	resp, err := passphraseService.ResetPassphrase(resetReq)
+	if err != nil {
+		console.Error(fmt.Sprintf("Error in reset passphrase: %v", err))
+		
+		// Audit logging for unhandled error
+		auditService := audit.NewAuditService(h.service.conn)
+		_ = auditService.CreateAuditLog(audit.AuditLogData{
+			Action:         "PASSPHRASE_RESET_UNHANDLED_ERROR",
+			ActorID:        "unknown",
+			ActorType:      "user",
+			OperationType:  "reset",
+			ClientIP:       getClientIP(r, req.ClientIP),
+			UserAgent:      getClientUserAgent(r, req.UserAgent),
+			SessionID:      req.SessionID,
+			Success:        false,
+			RequestMethod:  r.Method,
+			RequestPath:    r.URL.Path,
+			Details:        fmt.Sprintf("Unhandled error: %v", err),
+			AuditTimestamp: time.Now().UTC(),
+		})
+		
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	
+	// Return the response as JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// Helper functions
+func getClientIP(r *http.Request, fallback string) string {
+	if r == nil {
+		return fallback
+	}
+	
+	// Try X-Forwarded-For header first
+	forwarded := r.Header.Get("X-Forwarded-For")
+	if forwarded != "" {
+		// X-Forwarded-For can be a comma-separated list, use the first value
+		ips := strings.Split(forwarded, ",")
+		return strings.TrimSpace(ips[0])
+	}
+	
+	// Try the RemoteAddr
+	if r.RemoteAddr != "" {
+		// Remove port if present
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			return host
+		}
+		return r.RemoteAddr
+	}
+	
+	return fallback
+}
+
+func getClientUserAgent(r *http.Request, fallback string) string {
+	if r == nil {
+		return fallback
+	}
+	
+	userAgent := r.Header.Get("User-Agent")
+	if userAgent != "" {
+		return userAgent
+	}
+	
+	return fallback
+}
+
 // RegisterAuthRoutes registers all auth routes with the server
 func RegisterAuthRoutes(mux *http.ServeMux, conn string) {
 	h := NewHandler(conn)
@@ -268,4 +572,8 @@ func RegisterAuthRoutes(mux *http.ServeMux, conn string) {
 	mux.HandleFunc("/auth/otp/start", h.HandleOTPStart)
 	mux.HandleFunc("/auth/otp/register", h.HandleOTPRegistration)
 	mux.HandleFunc("/auth/otp/verify", h.HandleOTPVerification)
+	
+	// Password recovery endpoints
+	mux.HandleFunc("/auth/recover", h.HandlePasswordRecovery)
+	mux.HandleFunc("/auth/reset", h.HandlePasswordReset)
 }

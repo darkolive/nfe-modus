@@ -78,17 +78,9 @@ async function getAuthAuditLogs(limit = 50, days = 7, operationType = null) {
       auditLogs(func: type(AuditLog), orderdesc: auditTimestamp, first: $limit) @filter(ge(auditTimestamp, $daysAgo) ${operationFilter} AND (
         eq(operationType, "authentication") OR 
         eq(operationType, "login") OR
+        eq(operationType, "register") OR
         eq(operationType, "registration") OR
-        eq(operationType, "passphrase_registration") OR
-        eq(operationType, "passphrase_reset") OR
-        eq(requestPath, "/api/auth/webauthn/login") OR
-        eq(requestPath, "/api/auth/webauthn/login-verify") OR
-        eq(requestPath, "/api/auth/webauthn/register") OR
-        eq(requestPath, "/api/auth/webauthn/register-verify") OR
-        eq(requestPath, "/api/auth/passphrase/login") OR
-        eq(requestPath, "/api/auth/passphrase/register") OR
-        eq(requestPath, "/api/auth/passphrase/reset-request") OR
-        eq(requestPath, "/api/auth/passphrase/reset")
+        has(action) AND regexp(action, /^(PASSPHRASE|WEBAUTHN|OTP|TOKEN|LOGIN|REGISTER)/)
       )) {
         uid
         action

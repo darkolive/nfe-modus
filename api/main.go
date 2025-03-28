@@ -5,9 +5,12 @@ import (
 
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
+	
 	"nfe-modus/api/functions/auth"
+	"nfe-modus/api/functions/auth/jwt"
 	"nfe-modus/api/functions/email"
 	"nfe-modus/api/functions/user"
+	"fmt"
 )
 
 var (
@@ -16,11 +19,12 @@ var (
 
 func main() {
 	console.Info("Initializing WebAssembly module")
-	// WebAssembly initialization code here
+	console.Debug("Running API server")
 }
 
 // @modus:function
 func GenerateOTP(req *auth.GenerateOTPRequest) (*auth.GenerateOTPResponse, error) {
+	console.Debug("Processing Generate OTP request")
 	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	return otpService.GenerateOTP(req)
@@ -28,7 +32,7 @@ func GenerateOTP(req *auth.GenerateOTPRequest) (*auth.GenerateOTPResponse, error
 
 // @modus:function
 func VerifyOTP(req *auth.VerifyOTPRequest) (*auth.VerifyOTPResponse, error) {
-	console.Debug("Processing OTP verification - email may be provided in request or extracted from cookie")
+	console.Debug("Processing Verify OTP request")
 	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	return otpService.VerifyOTP(req)
@@ -40,17 +44,159 @@ func GetUserTimestamps(req *user.GetUserTimestampsInput) (*user.UserTimestamps, 
 }
 
 // @modus:mutation
-func RegisterWebAuthn(req *auth.WebAuthnRegistrationRequest) (*auth.WebAuthnRegistrationResponse, error) {
+func RegisterWebAuthn(req *auth.RegisterWebAuthnRequest) (*auth.RegisterWebAuthnResponse, error) {
 	console.Debug("Processing WebAuthn registration")
-	webAuthnService := auth.NewWebAuthnService(connection)
+	
+	// Validate recovery passphrase if provided
+	if req.RecoveryPassphrase == "" {
+		console.Debug("Recovery passphrase is required for WebAuthn registration")
+		return &auth.RegisterWebAuthnResponse{
+			Success: false,
+			Error:   "Recovery passphrase is required as a backup authentication method",
+		}, nil
+	}
+	
+	// Create JWT service with required parameters
+	jwtService := jwt.NewJWTService("your-secret-key", "nfe-modus", 24)
+	
+	// Create OTP service to verify the email cookie
+	emailService := email.NewService(connection)
+	otpService := auth.NewOTPService(connection, emailService)
+	
+	// Try to get email from verification cookie if email not directly provided
+	if req.Email == "" && req.VerificationCookie != "" {
+		email, verifiedAt, verified := otpService.GetVerifiedEmail(req.VerificationCookie)
+		if !verified {
+			console.Error("Email verification required before WebAuthn registration")
+			return &auth.RegisterWebAuthnResponse{
+				Success: false,
+				Error:   "Email verification required before WebAuthn registration",
+			}, nil
+		}
+		
+		// Check if verification is recent (within last 5 minutes)
+		if time.Since(verifiedAt) > 5*time.Minute {
+			console.Error("Email verification has expired, please verify your email again")
+			return &auth.RegisterWebAuthnResponse{
+				Success: false,
+				Error:   "Email verification has expired, please verify your email again",
+			}, nil
+		}
+		
+		// Update the request with the verified email
+		req.Email = email
+		console.Debug(fmt.Sprintf("Using verified email from OTP cookie: %s", email))
+	}
+	
+	// Validate email is present after potential cookie extraction
+	if req.Email == "" {
+		console.Debug("Email is required for WebAuthn registration")
+		return &auth.RegisterWebAuthnResponse{
+			Success: false,
+			Error:   "Email is required",
+		}, nil
+	}
+	
+	// Create WebAuthn service
+	webAuthnService, err := auth.NewWebAuthnService(connection, jwtService)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to create WebAuthn service: %v", err))
+		return &auth.RegisterWebAuthnResponse{
+			Success: false,
+			Error:   "Internal server error",
+		}, err
+	}
+	
+	// Create services for storing recovery passphrase
+	roleService := auth.NewRoleService(connection)
+	emailEncryption := auth.NewEmailEncryptionWithFallback()
+	
+	// Initialize passphrase service for future recovery passphrase storage
+	// Note: We're not using this service yet, but will in a future implementation
+	// to properly store the recovery passphrase
+	_, passphraseErr := auth.NewPassphraseService(connection, otpService, roleService, emailEncryption, emailService)
+	if passphraseErr != nil {
+		console.Error(fmt.Sprintf("Warning: Failed to initialize passphrase service: %v", passphraseErr))
+		// Continue despite this error, as we're not using the service yet
+	}
+	
+	// TODO: In a future implementation, we will:
+	// 1. Hash and store the recovery passphrase
+	// 2. Associate it with the user account
+	// 3. Implement recovery flows for WebAuthn authenticators
+	
+	// Proceed with WebAuthn registration
 	return webAuthnService.RegisterWebAuthn(req)
 }
 
 // @modus:function
-func VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) (*auth.WebAuthnVerificationResponse, error) {
+func VerifyWebAuthn(req *auth.VerifyWebAuthnRegistrationRequest) (*auth.VerifyWebAuthnRegistrationResponse, error) {
 	console.Debug("Processing WebAuthn verification")
-	webAuthnService := auth.NewWebAuthnService(connection)
+	
+	// Create JWT service with required parameters
+	jwtService := jwt.NewJWTService("your-secret-key", "nfe-modus", 24)
+	
+	// Create WebAuthn service
+	webAuthnService, err := auth.NewWebAuthnService(connection, jwtService)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to create WebAuthn service: %v", err))
+		return &auth.VerifyWebAuthnRegistrationResponse{
+			Success: false,
+			Error:   "Internal server error",
+		}, err
+	}
+	
+	// If email is not provided directly but we have a verification cookie
+	if req.Email == "" {
+		console.Debug("Email is required for WebAuthn verification")
+		return &auth.VerifyWebAuthnRegistrationResponse{
+			Success: false,
+			Error:   "Email is required",
+		}, nil
+	}
+	
+	// Proceed with WebAuthn verification
 	return webAuthnService.VerifyWebAuthn(req)
+}
+
+// @modus:function
+func SignInWebAuthn(req *auth.SignInWebAuthnRequest) (*auth.SignInWebAuthnResponse, error) {
+	console.Debug("Processing WebAuthn sign-in")
+	
+	// Create JWT service with required parameters
+	jwtService := jwt.NewJWTService("your-secret-key", "nfe-modus", 24)
+	
+	// Create WebAuthn service
+	webAuthnService, err := auth.NewWebAuthnService(connection, jwtService)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to create WebAuthn service: %v", err))
+		return &auth.SignInWebAuthnResponse{
+			Success: false,
+			Error:   "Internal server error",
+		}, err
+	}
+	
+	return webAuthnService.SignInWebAuthn(req)
+}
+
+// @modus:function
+func VerifySignInWebAuthn(req *auth.VerifyWebAuthnSignInRequest) (*auth.VerifyWebAuthnSignInResponse, error) {
+	console.Debug("Processing WebAuthn sign-in verification")
+	
+	// Create JWT service with required parameters
+	jwtService := jwt.NewJWTService("your-secret-key", "nfe-modus", 24)
+	
+	// Create WebAuthn service
+	webAuthnService, err := auth.NewWebAuthnService(connection, jwtService)
+	if err != nil {
+		console.Error(fmt.Sprintf("Failed to create WebAuthn service: %v", err))
+		return &auth.VerifyWebAuthnSignInResponse{
+			Success: false,
+			Error:   "Internal server error",
+		}, err
+	}
+	
+	return webAuthnService.VerifySignInWebAuthn(req)
 }
 
 // @modus:function
@@ -121,7 +267,7 @@ func RecoveryPassphrase(req *auth.RecoveryPassphraseRequest) (*auth.RecoveryPass
 
 // @modus:function
 func ResetPassphrase(req *auth.ResetPassphraseRequest) (*auth.ResetPassphraseResponse, error) {
-	console.Debug("Processing Reset Passphrase request - using verification cookie for email retrieval")
+	console.Debug("Processing Reset Passphrase request - using reset token for password reset")
 	emailService := email.NewService(connection)
 	otpService := auth.NewOTPService(connection, emailService)
 	roleService := auth.NewRoleService(connection)

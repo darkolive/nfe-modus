@@ -532,123 +532,15 @@ func generateChallenge() (string, error) {
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
 
-// WebAuthnService handles WebAuthn operations
-type WebAuthnService struct {
-	svc *Service
-}
-
-// NewWebAuthnService creates a new WebAuthn service instance
-func NewWebAuthnService(conn string) *WebAuthnService {
-	return &WebAuthnService{
-		svc: NewService(conn),
-	}
-}
-
-// WebAuthnRegistrationRequest represents a request to register a new passkey
-type WebAuthnRegistrationRequest struct {
-	Email          string `json:"email"`
-	CredentialData []byte `json:"credentialData"`
-	DeviceID       string `json:"deviceId"`
-}
-
-// WebAuthnRegistrationResponse represents the response to a passkey registration
-type WebAuthnRegistrationResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	UserDID string `json:"userDid,omitempty"`
-}
-
-// WebAuthnVerificationRequest represents a request to verify a passkey
-type WebAuthnVerificationRequest struct {
-	Email         string `json:"email"`
-	AssertionData []byte `json:"assertionData"`
-	DeviceID      string `json:"deviceId"`
-}
-
-// WebAuthnVerificationResponse represents the response to a passkey verification
-type WebAuthnVerificationResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Token   string `json:"token,omitempty"`
-	User    *User  `json:"user,omitempty"`
-}
-
-type User struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-}
-
-// RegisterWebAuthn handles passkey registration
-func (s *WebAuthnService) RegisterWebAuthn(req *WebAuthnRegistrationRequest) (*WebAuthnRegistrationResponse, error) {
-	ctx := context.Background()
-
-	// Hash email for privacy
-	hashedEmail := hashEmail(req.Email)
-
-	// Register the passkey
-	if err := s.svc.RegisterPasskey(ctx, hashedEmail, req.CredentialData); err != nil {
-		return &WebAuthnRegistrationResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to register passkey: %v", err),
-		}, err
-	}
-
-	// Generate DID for the user
-	did := fmt.Sprintf("did:nfe:%s", hashedEmail)
-
-	return &WebAuthnRegistrationResponse{
-		Success: true,
-		Message: "Passkey registered successfully",
-		UserDID: did,
-	}, nil
-}
-
-// VerifyWebAuthn handles passkey verification
-func (s *WebAuthnService) VerifyWebAuthn(req *WebAuthnVerificationRequest) (*WebAuthnVerificationResponse, error) {
-	ctx := context.Background()
-
-	// Hash email for privacy
-	hashedEmail := hashEmail(req.Email)
-
-	// Verify the passkey
-	if err := s.svc.VerifyPasskey(ctx, hashedEmail, req.AssertionData); err != nil {
-		return &WebAuthnVerificationResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to verify passkey: %v", err),
-		}, err
-	}
-
-	// Generate authentication token
-	token, err := generateAuthToken(hashedEmail, req.DeviceID)
-	if err != nil {
-		return &WebAuthnVerificationResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to generate token: %v", err),
-		}, err
-	}
-
-	// Return success response with token
-	return &WebAuthnVerificationResponse{
-		Success: true,
-		Message: "Passkey verified successfully",
-		Token:   token,
-		User: &User{
-			ID:    hashedEmail,
-			Email: req.Email,
-		},
-	}, nil
-}
-
 // Helper function to hash email
 func hashEmail(email string) string {
-	h := sha256.New()
-	h.Write([]byte(email))
-	return base64.URLEncoding.EncodeToString(h.Sum(nil))
+	hasher := sha256.New()
+	hasher.Write([]byte(email))
+	return base64.URLEncoding.EncodeToString(hasher.Sum(nil))
 }
 
 // Helper function to generate authentication token
 func generateAuthToken(hashedEmail, deviceID string) (string, error) {
-	// TODO: Implement proper JWT token generation
-	// For now, return a placeholder
+	// Simplified token generation for now
 	return base64.URLEncoding.EncodeToString([]byte(hashedEmail + ":" + deviceID)), nil
 }

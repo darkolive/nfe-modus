@@ -36,7 +36,7 @@ func __modus_GetUserTimestamps(req *user.GetUserTimestampsInput) *user.UserTimes
 }
 
 //go:export registerWebAuthn
-func __modus_RegisterWebAuthn(req *auth.WebAuthnRegistrationRequest) *auth.WebAuthnRegistrationResponse {
+func __modus_RegisterWebAuthn(req *auth.RegisterWebAuthnRequest) *auth.RegisterWebAuthnResponse {
 	r0, err := RegisterWebAuthn(req)
 	if err != nil {
 		console.Error(err.Error())
@@ -45,8 +45,26 @@ func __modus_RegisterWebAuthn(req *auth.WebAuthnRegistrationRequest) *auth.WebAu
 }
 
 //go:export verifyWebAuthn
-func __modus_VerifyWebAuthn(req *auth.WebAuthnVerificationRequest) *auth.WebAuthnVerificationResponse {
+func __modus_VerifyWebAuthn(req *auth.VerifyWebAuthnRegistrationRequest) *auth.VerifyWebAuthnRegistrationResponse {
 	r0, err := VerifyWebAuthn(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export signInWebAuthn
+func __modus_SignInWebAuthn(req *auth.SignInWebAuthnRequest) *auth.SignInWebAuthnResponse {
+	r0, err := SignInWebAuthn(req)
+	if err != nil {
+		console.Error(err.Error())
+	}
+	return r0
+}
+
+//go:export verifySignInWebAuthn
+func __modus_VerifySignInWebAuthn(req *auth.VerifyWebAuthnSignInRequest) *auth.VerifyWebAuthnSignInResponse {
+	r0, err := VerifySignInWebAuthn(req)
 	if err != nil {
 		console.Error(err.Error())
 	}

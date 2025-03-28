@@ -1,12 +1,13 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"time"
-	"crypto/rand"
-	"encoding/hex"
 	"strings"
+	"time"
 
 	"github.com/hypermodeinc/modus/sdk/go/pkg/console"
 	"github.com/hypermodeinc/modus/sdk/go/pkg/dgraph"
@@ -63,7 +64,8 @@ type RegisterPassphraseResponse struct {
 
 // RecoveryPassphraseRequest contains data for recovering a user's passphrase
 type RecoveryPassphraseRequest struct {
-	Email string `json:"email"`
+	Email              string `json:"email"`
+	VerificationCookie string `json:"verificationCookie"`
 	// Fields needed for audit logging
 	ClientIP   string `json:"clientIp,omitempty"`
 	UserAgent  string `json:"userAgent,omitempty"`
@@ -80,7 +82,8 @@ type RecoveryPassphraseResponse struct {
 // ResetPassphraseRequest contains data for resetting a user's passphrase
 type ResetPassphraseRequest struct {
 	Passphrase         string `json:"passphrase"`
-	VerificationCookie string `json:"verificationCookie"`
+	ResetToken         string `json:"resetToken"`
+	Email              string `json:"email"`
 	// Fields needed for audit logging
 	ClientIP   string `json:"clientIp,omitempty"`
 	UserAgent  string `json:"userAgent,omitempty"`
@@ -469,8 +472,7 @@ func (ps *PassphraseService) SigninPassphrase(req *SigninPassphraseRequest) (*Si
         resetMutation := dgraph.NewMutation()
         resetMutation = resetMutation.WithSetNquads(fmt.Sprintf(`
             <%s> <failedLoginAttempts> "0" .
-            <%s> <lockedUntil> "" .
-        `, dgraph.EscapeRDF(user.Uid), dgraph.EscapeRDF(user.Uid)))
+        `, dgraph.EscapeRDF(user.Uid)))
         
         _, _ = dgraph.ExecuteMutations(ps.conn, resetMutation) // Ignore errors here
     }
@@ -680,7 +682,7 @@ func (ps *PassphraseService) RegisterPassphrase(req *RegisterPassphraseRequest) 
         Users []struct {
             Uid    string `json:"uid"`
             Did    string `json:"did"`
-            Active bool   `json:"active"`
+            Active string `json:"active"` // Changed from bool to string to match database type
         } `json:"users"`
     }
     
@@ -904,7 +906,63 @@ func (ps *PassphraseService) RecoveryPassphrase(req *RecoveryPassphraseRequest) 
         sessionID = "unknown"
     }
     
-    // Find user by email
+    // Get verified email from verification cookie
+    otpData, err := ps.otpService.decryptOTPData(req.VerificationCookie)
+    if err != nil {
+        console.Error("Failed to decrypt verification cookie: " + err.Error())
+        
+        // Log failed recovery attempt (verification cookie error)
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RECOVERY",
+            ActorID:        "unknown",
+            ActorType:      "user",
+            OperationType:  "recovery_initiate",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/recover",
+            Details:        "Invalid or expired verification cookie",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &RecoveryPassphraseResponse{
+            Success: false,
+            Error:   "Invalid or expired verification",
+        }, nil
+    }
+    
+    email := otpData.Email
+    
+    // Encrypt the email for database lookup
+    encryptedEmail, err := ps.emailEncryption.EncryptEmail(email)
+    if err != nil {
+        console.Error("Failed to encrypt email: " + err.Error())
+        
+        // Log failed recovery attempt (encryption error)
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RECOVERY",
+            ActorID:        "unknown",
+            ActorType:      "user",
+            OperationType:  "recovery_initiate",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/recover",
+            Details:        "Email encryption error",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &RecoveryPassphraseResponse{
+            Success: false,
+            Error:   "Internal server error",
+        }, nil
+    }
+    
+    // Find user by encrypted email
     query := fmt.Sprintf(`
         query {
             users(func: eq(email, %q)) {
@@ -914,7 +972,7 @@ func (ps *PassphraseService) RecoveryPassphrase(req *RecoveryPassphraseRequest) 
                 locked
             }
         }
-    `, req.Email)
+    `, encryptedEmail)
     
     res, err := dgraph.ExecuteQuery(ps.conn, &dgraph.Query{Query: query})
     if err != nil {
@@ -946,7 +1004,7 @@ func (ps *PassphraseService) RecoveryPassphrase(req *RecoveryPassphraseRequest) 
         Users []struct {
             Uid    string `json:"uid"`
             Did    string `json:"did"`
-            Active bool   `json:"active"`
+            Active string `json:"active"` // Changed from bool to string to match database type
             Locked bool   `json:"locked"`
         } `json:"users"`
     }
@@ -978,8 +1036,7 @@ func (ps *PassphraseService) RecoveryPassphrase(req *RecoveryPassphraseRequest) 
     
     // User not found
     if len(userQueryResponse.Users) == 0 {
-        // For security reasons, don't reveal whether email exists
-        console.Warn("User not found for recovery: " + req.Email)
+        console.Warn("User not found for recovery: " + email)
         
         // Log recovery attempt for non-existent user
         _ = auditService.CreateAuditLog(audit.AuditLogData{
@@ -997,25 +1054,33 @@ func (ps *PassphraseService) RecoveryPassphrase(req *RecoveryPassphraseRequest) 
             AuditTimestamp: time.Now().UTC(),
         })
         
-        // For security, still return success
         return &RecoveryPassphraseResponse{
-            Success: true,
-            Message: "If your email is registered, you will receive a recovery link",
+            Success: false,
+            Error:   "Invalid user",
         }, nil
     }
     
     user := userQueryResponse.Users[0]
     
-    // Generate OTP for password recovery
-    otpReq := &GenerateOTPRequest{
-        Email: req.Email,
-    }
+    // Instead of OTP, generate a reset token and send a password reset email
+    resetToken := generateUniqueID()
     
-    _, err = ps.otpService.GenerateOTP(otpReq)
+    // Store the reset token in the database with expiration
+    resetMutation := dgraph.NewMutation()
+    now := time.Now().UTC()
+    expiration := now.Add(time.Hour).Format(time.RFC3339) // 1 hour expiration
+    
+    resetMutation = resetMutation.WithSetNquads(fmt.Sprintf(`
+        <%s> <resetToken> "%s" .
+        <%s> <resetTokenExpiration> "%s" .
+    `, dgraph.EscapeRDF(user.Uid), dgraph.EscapeRDF(resetToken), 
+       dgraph.EscapeRDF(user.Uid), dgraph.EscapeRDF(expiration)))
+    
+    _, err = dgraph.ExecuteMutations(ps.conn, resetMutation)
     if err != nil {
-        console.Error("Failed to generate OTP: " + err.Error())
+        console.Error("Failed to store reset token: " + err.Error())
         
-        // Log failed recovery (OTP generation error)
+        // Log failed recovery (token storage error)
         _ = auditService.CreateAuditLog(audit.AuditLogData{
             Action:         "PASSWORD_RECOVERY",
             ActorID:        user.Did,
@@ -1027,13 +1092,40 @@ func (ps *PassphraseService) RecoveryPassphrase(req *RecoveryPassphraseRequest) 
             Success:        false,
             RequestMethod:  "POST",
             RequestPath:    "/auth/recover",
-            Details:        "Failed to generate OTP",
+            Details:        "Failed to store reset token",
             AuditTimestamp: time.Now().UTC(),
         })
         
         return &RecoveryPassphraseResponse{
             Success: false,
-            Error:   "Failed to generate recovery code",
+            Error:   "Failed to generate recovery token",
+        }, nil
+    }
+    
+    // Send password reset email
+    err = ps.emailService.SendPasswordReset(email, resetToken)
+    if err != nil {
+        console.Error("Failed to send password reset email: " + err.Error())
+        
+        // Log failed recovery (email sending error)
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RECOVERY",
+            ActorID:        user.Did,
+            ActorType:      "user",
+            OperationType:  "recovery_initiate",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/recover",
+            Details:        "Failed to send password reset email",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &RecoveryPassphraseResponse{
+            Success: false,
+            Error:   "Failed to send recovery email",
         }, nil
     }
     
@@ -1080,11 +1172,14 @@ func (ps *PassphraseService) ResetPassphrase(req *ResetPassphraseRequest) (*Rese
     }
     
     // Get verified email from verification cookie
-    otpData, err := ps.otpService.decryptOTPData(req.VerificationCookie)
+    email := req.Email
+    
+    // Encrypt the email for searching
+    encryptedEmail, err := ps.emailEncryption.EncryptEmail(email)
     if err != nil {
-        console.Error("Failed to decrypt verification cookie: " + err.Error())
+        console.Error("Failed to encrypt email for search: " + err.Error())
         
-        // Log failed reset (invalid verification cookie)
+        // Log failed reset (encryption error)
         _ = auditService.CreateAuditLog(audit.AuditLogData{
             Action:         "PASSWORD_RESET",
             ActorID:        "unknown",
@@ -1096,69 +1191,17 @@ func (ps *PassphraseService) ResetPassphrase(req *ResetPassphraseRequest) (*Rese
             Success:        false,
             RequestMethod:  "POST",
             RequestPath:    "/auth/reset",
-            Details:        "Failed to decrypt verification cookie",
+            Details:        "Failed to process user data: encryption error",
             AuditTimestamp: time.Now().UTC(),
         })
         
         return &ResetPassphraseResponse{
             Success: false,
-            Error:   "Invalid verification cookie",
+            Error:   "Failed to process user data",
         }, nil
     }
     
-    email := otpData.Email
-    if email == "" {
-        console.Error("Email missing from verification data")
-        
-        // Log failed reset (missing email)
-        _ = auditService.CreateAuditLog(audit.AuditLogData{
-            Action:         "PASSWORD_RESET",
-            ActorID:        "unknown",
-            ActorType:      "user",
-            OperationType:  "reset",
-            ClientIP:       clientIP,
-            UserAgent:      userAgent,
-            SessionID:      sessionID,
-            Success:        false,
-            RequestMethod:  "POST",
-            RequestPath:    "/auth/reset",
-            Details:        "Email missing from verification data",
-            AuditTimestamp: time.Now().UTC(),
-        })
-        
-        return &ResetPassphraseResponse{
-            Success: false,
-            Error:   "Invalid verification data",
-        }, nil
-    }
-    
-    // Check if the OTP is still valid (not expired)
-    if otpData.ExpiresAt.Before(time.Now()) {
-        console.Error("Verification expired")
-        
-        // Log failed reset (verification expired)
-        _ = auditService.CreateAuditLog(audit.AuditLogData{
-            Action:         "PASSWORD_RESET",
-            ActorID:        "unknown",
-            ActorType:      "user",
-            OperationType:  "reset",
-            ClientIP:       clientIP,
-            UserAgent:      userAgent,
-            SessionID:      sessionID,
-            Success:        false,
-            RequestMethod:  "POST",
-            RequestPath:    "/auth/reset",
-            Details:        "Verification expired",
-            AuditTimestamp: time.Now().UTC(),
-        })
-        
-        return &ResetPassphraseResponse{
-            Success: false,
-            Error:   "Verification expired, please request a new reset link",
-        }, nil
-    }
-    
-    // Find user by email
+    // Find user by encrypted email
     query := fmt.Sprintf(`
         query {
             users(func: eq(email, %q)) {
@@ -1167,7 +1210,7 @@ func (ps *PassphraseService) ResetPassphrase(req *ResetPassphraseRequest) (*Rese
                 active
             }
         }
-    `, email)
+    `, encryptedEmail)
     
     res, err := dgraph.ExecuteQuery(ps.conn, &dgraph.Query{Query: query})
     if err != nil {
@@ -1199,7 +1242,7 @@ func (ps *PassphraseService) ResetPassphrase(req *ResetPassphraseRequest) (*Rese
         Users []struct {
             Uid    string `json:"uid"`
             Did    string `json:"did"`
-            Active bool   `json:"active"`
+            Active string `json:"active"` // Changed from bool to string to match database type
         } `json:"users"`
     }
     
@@ -1256,24 +1299,173 @@ func (ps *PassphraseService) ResetPassphrase(req *ResetPassphraseRequest) (*Rese
     
     user := userQueryResponse.Users[0]
     
-    // Generate passwordless DID with the email and passphrase
-    did := ps.didService.GeneratePasswordlessDID(email, req.Passphrase)
+    // Check if the reset token is valid
+    query = fmt.Sprintf(`
+        query {
+            user(func: eq(uid, %q)) {
+                resetToken
+                resetTokenExpiration
+            }
+        }
+    `, user.Uid)
     
-    // Update user's DID
-    nquads := fmt.Sprintf(`
-        <%s> <did> %q .
-        <%s> <active> "true" .
-        <%s> <hasPassphrase> "true" .
-        <%s> <failedLoginAttempts> "0" .
-        <%s> <lockedUntil> "" .
-    `, user.Uid, did, user.Uid, user.Uid, user.Uid, user.Uid)
+    res, err = dgraph.ExecuteQuery(ps.conn, &dgraph.Query{Query: query})
+    if err != nil {
+        console.Error("Failed to query Dgraph: " + err.Error())
+        
+        // Log failed reset (DB error)
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RESET",
+            ActorID:        "unknown",
+            ActorType:      "user",
+            OperationType:  "reset",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/reset",
+            Details:        "Database error during reset token check",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &ResetPassphraseResponse{
+            Success: false,
+            Error:   "Internal server error",
+        }, nil
+    }
     
-    mutation := dgraph.NewMutation().WithSetNquads(nquads)
+    var resetTokenQueryResponse struct {
+        User []struct {
+            ResetToken         string `json:"resetToken"`
+            ResetTokenExpiration string `json:"resetTokenExpiration"`
+        } `json:"user"`
+    }
+    
+    if err := json.Unmarshal([]byte(res.Json), &resetTokenQueryResponse); err != nil {
+        console.Error("Failed to parse query response: " + err.Error())
+        
+        // Log failed reset (parsing error)
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RESET",
+            ActorID:        "unknown",
+            ActorType:      "user",
+            OperationType:  "reset",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/reset",
+            Details:        "Error parsing database response",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &ResetPassphraseResponse{
+            Success: false,
+            Error:   "Internal server error",
+        }, nil
+    }
+    
+    // Check if the reset token is valid
+    if len(resetTokenQueryResponse.User) == 0 || resetTokenQueryResponse.User[0].ResetToken != req.ResetToken {
+        console.Warn("Invalid reset token")
+        
+        // Log invalid reset token attempt
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RESET",
+            ActorID:        "unknown",
+            ActorType:      "user",
+            OperationType:  "reset",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/reset",
+            Details:        "Invalid reset token",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &ResetPassphraseResponse{
+            Success: false,
+            Error:   "Invalid reset token",
+        }, nil
+    }
+    
+    // Check if the reset token has expired
+    expiration, err := time.Parse(time.RFC3339, resetTokenQueryResponse.User[0].ResetTokenExpiration)
+    if err != nil {
+        console.Error("Failed to parse reset token expiration: " + err.Error())
+        
+        // Log failed reset (expiration parsing error)
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RESET",
+            ActorID:        "unknown",
+            ActorType:      "user",
+            OperationType:  "reset",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/reset",
+            Details:        "Failed to parse reset token expiration",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &ResetPassphraseResponse{
+            Success: false,
+            Error:   "Internal server error",
+        }, nil
+    }
+    
+    if expiration.Before(time.Now()) {
+        console.Warn("Reset token has expired")
+        
+        // Log expired reset token attempt
+        _ = auditService.CreateAuditLog(audit.AuditLogData{
+            Action:         "PASSWORD_RESET",
+            ActorID:        "unknown",
+            ActorType:      "user",
+            OperationType:  "reset",
+            ClientIP:       clientIP,
+            UserAgent:      userAgent,
+            SessionID:      sessionID,
+            Success:        false,
+            RequestMethod:  "POST",
+            RequestPath:    "/auth/reset",
+            Details:        "Reset token has expired",
+            AuditTimestamp: time.Now().UTC(),
+        })
+        
+        return &ResetPassphraseResponse{
+            Success: false,
+            Error:   "Reset token has expired",
+        }, nil
+    }
+    
+    // Hash the new passphrase
+    hashedPassphrase := hashPassphrase(req.Passphrase)
+    
+    // Update the user's passphrase in the database and clear the reset token
+    now := time.Now().UTC().Format(time.RFC3339)
+    mutation := dgraph.NewMutation().WithSetNquads(fmt.Sprintf(`
+        <%s> <passphrase> "%s" .
+        <%s> <lastPassphraseUpdate> "%s" .
+    `, dgraph.EscapeRDF(user.Uid), dgraph.EscapeRDF(hashedPassphrase), 
+       dgraph.EscapeRDF(user.Uid), dgraph.EscapeRDF(now)))
+    
+    // Clear reset token fields
+    mutation = mutation.WithDelNquads(fmt.Sprintf(`
+        <%s> <resetToken> * .
+        <%s> <resetTokenExpiration> * .
+    `, dgraph.EscapeRDF(user.Uid), dgraph.EscapeRDF(user.Uid)))
     
     // Execute the mutation
     _, err = dgraph.ExecuteMutations(ps.conn, mutation)
     if err != nil {
-        console.Error("Failed to update user DID: " + err.Error())
+        console.Error("Failed to update user passphrase: " + err.Error())
         
         // Log failed reset (DB update error)
         _ = auditService.CreateAuditLog(audit.AuditLogData{
@@ -1300,7 +1492,7 @@ func (ps *PassphraseService) ResetPassphrase(req *ResetPassphraseRequest) (*Rese
     // Log successful passphrase reset
     _ = auditService.CreateAuditLog(audit.AuditLogData{
         Action:         "PASSWORD_RESET",
-        ActorID:        did,
+        ActorID:        user.Did,
         ActorType:      "user",
         OperationType:  "reset",
         ClientIP:       clientIP,
@@ -1419,7 +1611,7 @@ func (ps *PassphraseService) UpdateUserDetails(req *UserDetailsRequest) (*UserDe
         User []struct {
             Uid    string `json:"uid"`
             Did    string `json:"did"`
-            Active bool   `json:"active"`
+            Active string `json:"active"` // Changed from bool to string to match database type
         } `json:"user"`
     }
     
@@ -1813,4 +2005,10 @@ func (ps *PassphraseService) RegisterUserDetails(req *RegisterUserDetailsRequest
             SessionID: req.SessionID,
         })
     }
+}
+
+func hashPassphrase(passphrase string) string {
+    h := sha256.New()
+    h.Write([]byte(passphrase))
+    return hex.EncodeToString(h.Sum(nil))
 }
